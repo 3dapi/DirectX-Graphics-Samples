@@ -35,7 +35,7 @@ public:
     virtual void OnDestroy();
 
 private:
-    static const UINT FrameCount = 3;
+    static const UINT m_RenderTargetCount = 3;
     static const UINT TextureWidth = 512;
     static const UINT TextureHeight = 512;
     static const UINT TexturePixelSize = 4;    // The number of bytes used to represent a pixel in the texture.
@@ -50,17 +50,17 @@ private:
     CD3DX12_VIEWPORT m_viewport;
     CD3DX12_RECT m_scissorRect;
     ComPtr<IDXGIAdapter3> m_adapter;
-    ComPtr<IDXGISwapChain3> m_swapChain;
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
-    ComPtr<ID3D12CommandAllocator> m_commandAllocator;
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
-    ComPtr<ID3D12RootSignature> m_rootSignature;
-    ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[m_RenderTargetCount];
+    ComPtr<ID3D12CommandAllocator> m_d3dCommandAllocator;
+    ComPtr<ID3D12CommandQueue> m_d3dCommandQueue;
+    ComPtr<ID3D12RootSignature> m_d3dRootSignature;
+    ComPtr<ID3D12DescriptorHeap> m_d3dDecsHeap;
     ComPtr<ID3D12DescriptorHeap> m_srvHeap;
-    ComPtr<ID3D12PipelineState> m_pipelineState;
-    ComPtr<ID3D12GraphicsCommandList> m_commandList;
-    UINT m_rtvDescriptorSize;
+    ComPtr<ID3D12PipelineState> m_d3dPipelineState;
+    ComPtr<ID3D12GraphicsCommandList> m_d3dCommandList;
+    UINT m_d3dDescriptorSize;
     UINT m_srvDescriptorSize;
 
     // App resources.
@@ -76,7 +76,7 @@ private:
     // Resource residency management.
     static const UINT NumTextures = 1024 * 8;                // Should make for ~8GB of VRAM.
     static const UINT CommandListSubmissionsPerFrame = 1;
-    static const UINT MaxResidencyLatency = FrameCount * CommandListSubmissionsPerFrame;
+    static const UINT MaxResidencyLatency = m_RenderTargetCount * CommandListSubmissionsPerFrame;
 
     struct ManagedCommandList
     {
@@ -97,7 +97,7 @@ private:
     UINT64 m_totalAllocations;
     UINT m_textureIndex;
     D3DX12Residency::ResidencyManager m_residencyManager;
-    std::queue<std::shared_ptr<ManagedCommandList>> m_commandListPool;
+    std::queue<std::shared_ptr<ManagedCommandList>> m_d3dCommandListPool;
 
     // Thread and texture loading management.
     std::vector<std::future<void>> m_threads;

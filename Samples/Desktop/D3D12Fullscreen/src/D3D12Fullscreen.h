@@ -36,7 +36,7 @@ protected:
     virtual void OnWindowMoved(int, int);
     virtual void OnDestroy();
     virtual void OnKeyDown(UINT8 key);
-    virtual IDXGISwapChain* GetSwapchain() { return m_swapChain.Get(); }
+    virtual IDXGISwapChain* GetSwapchain() { return m_d3dSwapChain.Get(); }
 
 private:
     static const UINT FrameCount = 2;
@@ -79,13 +79,13 @@ private:
     CD3DX12_VIEWPORT m_postViewport;
     CD3DX12_RECT m_sceneScissorRect;
     CD3DX12_RECT m_postScissorRect;
-    ComPtr<IDXGISwapChain3> m_swapChain;
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[FrameCount];
     ComPtr<ID3D12Resource> m_intermediateRenderTarget;
     ComPtr<ID3D12CommandAllocator> m_sceneCommandAllocators[FrameCount];
     ComPtr<ID3D12CommandAllocator> m_postCommandAllocators[FrameCount];
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
+    ComPtr<ID3D12CommandQueue> m_d3dCommandQueue;
     ComPtr<ID3D12RootSignature> m_sceneRootSignature;
     ComPtr<ID3D12RootSignature> m_postRootSignature;
     ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
@@ -107,7 +107,7 @@ private:
     UINT8* m_pCbvDataBegin;
 
     // Synchronization objects.
-    UINT m_frameIndex;
+    UINT m_d3dCurrentFrameIndex;
     HANDLE m_fenceEvent;
     ComPtr<ID3D12Fence> m_fence;
     UINT64 m_fenceValues[FrameCount];

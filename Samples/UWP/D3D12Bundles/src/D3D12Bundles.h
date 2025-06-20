@@ -38,7 +38,7 @@ public:
     virtual void OnKeyUp(UINT8 key);
 
 private:
-    static const UINT FrameCount = 3;
+    static const UINT m_RenderTargetCount = 3;
     static const UINT CityRowCount = 10;
     static const UINT CityColumnCount = 3;
     static const bool UseBundles = true;
@@ -46,20 +46,20 @@ private:
     // Pipeline objects.
     CD3DX12_VIEWPORT m_viewport;
     CD3DX12_RECT m_scissorRect;
-    ComPtr<IDXGISwapChain3> m_swapChain;
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
-    ComPtr<ID3D12Resource> m_depthStencil;
-    ComPtr<ID3D12CommandAllocator> m_commandAllocator;
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
-    ComPtr<ID3D12RootSignature >m_rootSignature;
-    ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[m_RenderTargetCount];
+    ComPtr<ID3D12Resource> m_d3dDepthStencil;
+    ComPtr<ID3D12CommandAllocator> m_d3dCommandAllocator;
+    ComPtr<ID3D12CommandQueue> m_d3dCommandQueue;
+    ComPtr<ID3D12RootSignature >m_d3dRootSignature;
+    ComPtr<ID3D12DescriptorHeap> m_d3dDecsHeap;
     ComPtr<ID3D12DescriptorHeap> m_cbvSrvHeap;
     ComPtr<ID3D12DescriptorHeap> m_dsvHeap;
     ComPtr<ID3D12DescriptorHeap> m_samplerHeap;
-    ComPtr<ID3D12PipelineState> m_pipelineState1;
-    ComPtr<ID3D12PipelineState> m_pipelineState2;
-    ComPtr<ID3D12GraphicsCommandList> m_commandList;
+    ComPtr<ID3D12PipelineState> m_d3dPipelineState1;
+    ComPtr<ID3D12PipelineState> m_d3dPipelineState2;
+    ComPtr<ID3D12GraphicsCommandList> m_d3dCommandList;
 
     // App resources.
     UINT m_numIndices;
@@ -70,7 +70,7 @@ private:
     D3D12_INDEX_BUFFER_VIEW m_indexBufferView;
     StepTimer m_timer;
     UINT m_cbvSrvDescriptorSize;
-    UINT m_rtvDescriptorSize;
+    UINT m_d3dDescriptorSize;
     SimpleCamera m_camera;
 
     // Frame resources.

@@ -68,15 +68,15 @@ private:
     UINT                                m_rtvDescriptorSize;
     UINT                                m_dsvDescriptorSize;
     
-    ComPtr<ID3D12Device2>               m_device;
-    ComPtr<IDXGISwapChain3>             m_swapChain;
-    ComPtr<ID3D12Resource>              m_renderTargets[FrameCount];
-    ComPtr<ID3D12Resource>              m_depthStencil;
+    ComPtr<ID3D12Device2>               m_d3dDevice;
+    ComPtr<IDXGISwapChain3>             m_d3dSwapChain;
+    ComPtr<ID3D12Resource>              m_d3dRenderTarget[FrameCount];
+    ComPtr<ID3D12Resource>              m_d3dDepthStencil;
     ComPtr<ID3D12CommandAllocator>      m_commandAllocators[FrameCount];
-    ComPtr<ID3D12CommandQueue>          m_commandQueue;
+    ComPtr<ID3D12CommandQueue>          m_d3dCommandQueue;
 
     // Synchronization objects.
-    UINT                                m_frameIndex;
+    UINT                                m_d3dCurrentFrameIndex;
     UINT                                m_frameCounter;
     HANDLE                              m_fenceEvent;
     ComPtr<ID3D12Fence>                 m_fence;
@@ -85,7 +85,7 @@ private:
     ComPtr<ID3D12DescriptorHeap>        m_rtvHeap;
     ComPtr<ID3D12DescriptorHeap>        m_dsvHeap;
     
-    ComPtr<ID3D12RootSignature>         m_rootSignature;
+    ComPtr<ID3D12RootSignature>         m_d3dRootSignature;
     ComPtr<ID3D12PipelineState>         m_pipelineState;
     ComPtr<ID3D12Resource>              m_constantBuffer;
     ComPtr<ID3D12Resource>              m_instanceBuffer;

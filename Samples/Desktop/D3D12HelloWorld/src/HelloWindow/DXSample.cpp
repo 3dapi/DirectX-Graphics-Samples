@@ -1,4 +1,4 @@
-//*********************************************************
+﻿//*********************************************************
 //
 // Copyright (c) Microsoft. All rights reserved.
 // This code is licensed under the MIT License (MIT).
@@ -39,14 +39,9 @@ std::wstring DXSample::GetAssetFullPath(LPCWSTR assetName)
 
 // Helper function for acquiring the first available hardware adapter that supports Direct3D 12.
 // If no such adapter can be found, *ppAdapter will be set to nullptr.
-_Use_decl_annotations_
-void DXSample::GetHardwareAdapter(
-    IDXGIFactory1* pFactory,
-    IDXGIAdapter1** ppAdapter,
-    bool requestHighPerformanceAdapter)
-{
-    *ppAdapter = nullptr;
 
+IDXGIAdapter* DXSample::GetHardwareAdapter(IDXGIFactory1* pFactory, bool requestHighPerformanceAdapter)
+{
     ComPtr<IDXGIAdapter1> adapter;
 
     ComPtr<IDXGIFactory6> factory6;
@@ -102,7 +97,7 @@ void DXSample::GetHardwareAdapter(
         }
     }
     
-    *ppAdapter = adapter.Detach();
+    return adapter.Detach();
 }
 
 // Helper function for setting the window's title text.

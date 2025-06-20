@@ -33,7 +33,7 @@ public:
     virtual void OnDestroy();
 
 private:
-    static const UINT FrameCount = 2;
+    static const UINT m_RenderTargetCount = 2;
     static const UINT TextureWidth = 256;
     static const UINT TextureHeight = 256;
     static const UINT TexturePixelSize = 4;    // The number of bytes used to represent a pixel in the texture.
@@ -47,17 +47,17 @@ private:
     // Pipeline objects.
     CD3DX12_VIEWPORT m_viewport;
     CD3DX12_RECT m_scissorRect;
-    ComPtr<IDXGISwapChain3> m_swapChain;
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
-    ComPtr<ID3D12CommandAllocator> m_commandAllocator;
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
-    ComPtr<ID3D12RootSignature> m_rootSignature;
-    ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[m_RenderTargetCount];
+    ComPtr<ID3D12CommandAllocator> m_d3dCommandAllocator;
+    ComPtr<ID3D12CommandQueue> m_d3dCommandQueue;
+    ComPtr<ID3D12RootSignature> m_d3dRootSignature;
+    ComPtr<ID3D12DescriptorHeap> m_d3dDecsHeap;
     ComPtr<ID3D12DescriptorHeap> m_srvHeap;
-    ComPtr<ID3D12PipelineState> m_pipelineState;
-    ComPtr<ID3D12GraphicsCommandList> m_commandList;
-    UINT m_rtvDescriptorSize;
+    ComPtr<ID3D12PipelineState> m_d3dPipelineState;
+    ComPtr<ID3D12GraphicsCommandList> m_d3dCommandList;
+    UINT m_d3dDescriptorSize;
 
     // App resources.
     ComPtr<ID3D12Resource> m_vertexBuffer;

@@ -44,7 +44,7 @@ private:
     static const float TriangleHalfWidth;                // The x and y offsets used by the triangle vertices.
     static const float TriangleDepth;                    // The z offset used by the triangle vertices.
 
-    UINT m_frameIndex;
+    UINT m_d3dCurrentFrameIndex;
     UINT m_triangleCount;
     UINT m_psLoopCount;
     UINT m_blurPSLoopCount;
@@ -114,13 +114,13 @@ private:
     UINT m_rtvDescriptorSizes[GraphicsAdaptersCount];
     UINT m_srvDescriptorSizes[GraphicsAdaptersCount];
     DXGI_ADAPTER_DESC1 m_adapterDescs[GraphicsAdaptersCount];
-    ComPtr<IDXGISwapChain3> m_swapChain;
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
     ComPtr<ID3D12Device> m_devices[GraphicsAdaptersCount];
     ComPtr<ID3D12CommandAllocator> m_directCommandAllocators[GraphicsAdaptersCount][FrameCount];
     ComPtr<ID3D12CommandAllocator> m_copyCommandAllocators[FrameCount];
     ComPtr<ID3D12CommandQueue> m_directCommandQueues[GraphicsAdaptersCount];
     ComPtr<ID3D12CommandQueue> m_copyCommandQueue;
-    ComPtr<ID3D12RootSignature> m_rootSignature;
+    ComPtr<ID3D12RootSignature> m_d3dRootSignature;
     ComPtr<ID3D12RootSignature> m_blurRootSignature;
     ComPtr<ID3D12PipelineState> m_pipelineState;
     ComPtr<ID3D12PipelineState> m_blurPipelineStates[2];
@@ -147,7 +147,7 @@ private:
     ComPtr<ID3D12Resource> m_workloadConstantBuffer;
     ComPtr<ID3D12Resource> m_blurWorkloadConstantBuffer;
     ComPtr<ID3D12Resource> m_blurConstantBuffer;
-    ComPtr<ID3D12Resource> m_depthStencil;
+    ComPtr<ID3D12Resource> m_d3dDepthStencil;
     D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
     D3D12_VERTEX_BUFFER_VIEW m_fullscreenQuadVertexBufferView;
     std::vector<SceneConstantBuffer> m_constantBufferData;
@@ -161,7 +161,7 @@ private:
     ComPtr<ID3D12Resource> m_crossAdapterResources[GraphicsAdaptersCount][FrameCount];
     BOOL m_crossAdapterTextureSupport;
     ComPtr<ID3D12Resource> m_secondaryAdapterTextures[FrameCount];            // Only used if cross adapter texture support is unavailable.
-    ComPtr<ID3D12Resource> m_renderTargets[GraphicsAdaptersCount][FrameCount];
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[GraphicsAdaptersCount][FrameCount];
     ComPtr<ID3D12Resource> m_intermediateBlurRenderTarget;
     ComPtr<ID3D12QueryHeap> m_timestampQueryHeaps[GraphicsAdaptersCount];
     ComPtr<ID3D12Resource> m_timestampResultBuffers[GraphicsAdaptersCount];

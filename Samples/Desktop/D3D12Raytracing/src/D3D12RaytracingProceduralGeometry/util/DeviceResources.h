@@ -79,11 +79,11 @@ namespace DX
         IDXGIAdapter1*              GetAdapter() const { return m_adapter.Get(); }
         ID3D12Device*               GetD3DDevice() const { return m_d3dDevice.Get(); }
         IDXGIFactory4*              GetDXGIFactory() const { return m_dxgiFactory.Get(); }
-        IDXGISwapChain3*            GetSwapChain() const { return m_swapChain.Get(); }
+        IDXGISwapChain3*            GetSwapChain() const { return m_d3dSwapChain.Get(); }
         D3D_FEATURE_LEVEL           GetDeviceFeatureLevel() const { return m_d3dFeatureLevel; }
-        ID3D12Resource*             GetRenderTarget() const { return m_renderTargets[m_backBufferIndex].Get(); }
-        ID3D12Resource*             GetDepthStencil() const { return m_depthStencil.Get(); }
-        ID3D12CommandQueue*         GetCommandQueue() const { return m_commandQueue.Get(); }
+        ID3D12Resource*             GetRenderTarget() const { return m_d3dRenderTarget[m_backBufferIndex].Get(); }
+        ID3D12Resource*             GetDepthStencil() const { return m_d3dDepthStencil.Get(); }
+        ID3D12CommandQueue*         GetCommandQueue() const { return m_d3dCommandQueue.Get(); }
         ID3D12CommandAllocator*     GetCommandAllocator() const { return m_commandAllocators[m_backBufferIndex].Get(); }
         ID3D12GraphicsCommandList*  GetCommandList() const { return m_commandList.Get(); }
         DXGI_FORMAT                 GetBackBufferFormat() const { return m_backBufferFormat; }
@@ -120,15 +120,15 @@ namespace DX
 
         // Direct3D objects.
         Microsoft::WRL::ComPtr<ID3D12Device>                m_d3dDevice;
-        Microsoft::WRL::ComPtr<ID3D12CommandQueue>          m_commandQueue;
+        Microsoft::WRL::ComPtr<ID3D12CommandQueue>          m_d3dCommandQueue;
         Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList>   m_commandList;
         Microsoft::WRL::ComPtr<ID3D12CommandAllocator>      m_commandAllocators[MAX_BACK_BUFFER_COUNT];
 
         // Swap chain objects.
         Microsoft::WRL::ComPtr<IDXGIFactory4>               m_dxgiFactory;
-        Microsoft::WRL::ComPtr<IDXGISwapChain3>             m_swapChain;
-        Microsoft::WRL::ComPtr<ID3D12Resource>              m_renderTargets[MAX_BACK_BUFFER_COUNT];
-        Microsoft::WRL::ComPtr<ID3D12Resource>              m_depthStencil;
+        Microsoft::WRL::ComPtr<IDXGISwapChain3>             m_d3dSwapChain;
+        Microsoft::WRL::ComPtr<ID3D12Resource>              m_d3dRenderTarget[MAX_BACK_BUFFER_COUNT];
+        Microsoft::WRL::ComPtr<ID3D12Resource>              m_d3dDepthStencil;
 
         // Presentation fence objects.
         Microsoft::WRL::ComPtr<ID3D12Fence>                 m_fence;

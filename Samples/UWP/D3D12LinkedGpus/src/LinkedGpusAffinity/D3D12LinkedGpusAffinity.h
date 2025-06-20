@@ -43,8 +43,8 @@ protected:
     virtual void OnDestroy();
 
 private:
-    ComPtr<CD3DX12AffinityDevice> m_device;
-    ComPtr<CDXGIAffinitySwapChain> m_swapChain;
+    ComPtr<CD3DX12AffinityDevice> m_d3dDevice;
+    ComPtr<CDXGIAffinitySwapChain> m_d3dSwapChain;
     ComPtr<CD3DX12AffinityCommandQueue> m_graphicsQueue;
     std::vector<ComPtr<CD3DX12AffinityCommandAllocator>> m_sceneCommandAllocators;
     std::vector<ComPtr<CD3DX12AffinityCommandAllocator>> m_postCommandAllocators;
@@ -79,7 +79,7 @@ private:
     std::shared_ptr<LinearFence> m_sceneFence;
 
     // A fence to regulate submission of post-processing render passes.
-    // Up to 'Settings::FrameCount' command lists can be in flight on the node at once.
+    // Up to 'Settings::m_RenderTargetCount' command lists can be in flight on the node at once.
     std::shared_ptr<LinearFence> m_postFence;
 
     // Vertex definitions.

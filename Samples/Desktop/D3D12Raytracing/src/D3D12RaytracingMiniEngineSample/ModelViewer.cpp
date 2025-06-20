@@ -279,7 +279,7 @@ class DescriptorHeapStack
 {
 public:
     DescriptorHeapStack(ID3D12Device &device, UINT numDescriptors, D3D12_DESCRIPTOR_HEAP_TYPE type, UINT NodeMask) :
-        m_device(device)
+        m_d3dDevice(device)
     {
         D3D12_DESCRIPTOR_HEAP_DESC desc = {};
         desc.NumDescriptors = numDescriptors;
@@ -313,7 +313,7 @@ public:
         srvDesc.Format = DXGI_FORMAT_R32_TYPELESS;
         srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 
-        m_device.CreateShaderResourceView(&resource, &srvDesc, cpuHandle);
+        m_d3dDevice.CreateShaderResourceView(&resource, &srvDesc, cpuHandle);
         return descriptorHeapIndex;
     }
 
@@ -328,7 +328,7 @@ public:
         uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
         uavDesc.Format = DXGI_FORMAT_R32_TYPELESS;
 
-        m_device.CreateUnorderedAccessView(&resource, nullptr, &uavDesc, cpuHandle);
+        m_d3dDevice.CreateUnorderedAccessView(&resource, nullptr, &uavDesc, cpuHandle);
         return descriptorHeapIndex;
     }
 
@@ -337,7 +337,7 @@ public:
         return CD3DX12_GPU_DESCRIPTOR_HANDLE(m_pDescriptorHeap->GetGPUDescriptorHandleForHeapStart(), descriptorIndex, m_descriptorSize);
     }
 private:
-    ID3D12Device & m_device;
+    ID3D12Device & m_d3dDevice;
     ComPtr<ID3D12DescriptorHeap> m_pDescriptorHeap;
     UINT m_descriptorsAllocated = 0;
     UINT m_descriptorSize;

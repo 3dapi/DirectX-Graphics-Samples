@@ -22,7 +22,7 @@ using namespace DirectX;
 
 D3D12LinkedGpusAffinity::D3D12LinkedGpusAffinity(UINT width, UINT height, std::wstring name) :
     DXSample(width, height, name),
-    m_frameIndex(0),
+    m_d3dCurrentFrameIndex(0),
     m_frameId(0),
     m_simulatedGpuLoad(0x1000),
     m_syncInterval(0),
@@ -77,8 +77,7 @@ void D3D12LinkedGpusAffinity::LoadPipeline()
     }
     else
     {
-        ComPtr<IDXGIAdapter1> hardwareAdapter;
-        GetHardwareAdapter(factory.Get(), &hardwareAdapter);
+        ComPtr<IDXGIAdapter> hardwareAdapter = GetHardwareAdapter(factory.Get());
 
         ThrowIfFailed(D3D12CreateDevice(
             hardwareAdapter.Get(),
@@ -87,10 +86,10 @@ void D3D12LinkedGpusAffinity::LoadPipeline()
             ));
     }
 
-    ThrowIfFailed(D3DX12AffinityCreateLDADevice(device.Get(), &m_device));
+    ThrowIfFailed(D3DX12AffinityCreateLDADevice(device.Get(), &m_d3dDevice));
 
     // Query capabilities of the device to configure the sample.
-    Settings::Initialize(m_device.Get(), m_width, m_height);
+    Settings::Initialize(m_d3dDevice.Get(), m_width, m_height);
 
     // Initialize member variables dependent on the Settings.
     m_syncSceneRenderTargets = (Settings::NodeCount > 1);
@@ -104,7 +103,7 @@ void D3D12LinkedGpusAffinity::LoadPipeline()
     queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 
-    ThrowIfFailed(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_graphicsQueue)));
+    ThrowIfFailed(m_d3dDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_graphicsQueue)));
 
     DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
     swapChainDesc.BufferCount = Settings::BackBufferCount;
@@ -131,7 +130,7 @@ void D3D12LinkedGpusAffinity::LoadPipeline()
         factory->MakeWindowAssociation(Win32Application::GetHwnd(), DXGI_MWA_NO_ALT_ENTER);
     }
 
-    DXGIXAffinityCreateLDASwapChain(swapChain.Get(), m_graphicsQueue.Get(), m_device.Get(), &m_swapChain);
+    DXGIXAffinityCreateLDASwapChain(swapChain.Get(), m_graphicsQueue.Get(), m_d3dDevice.Get(), &m_d3dSwapChain);
 
     // Scene descriptor heaps.
     {
@@ -140,21 +139,21 @@ void D3D12LinkedGpusAffinity::LoadPipeline()
         rtvHeapDesc.NumDescriptors = Settings::SceneHistoryCount;
         rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
         rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_sceneRtvHeap)));
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_sceneRtvHeap)));
 
         // Describe and create a depth stencil view (DSV) descriptor heap.
         D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
         dsvHeapDesc.NumDescriptors = 1;
         dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
         dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_sceneDsvHeap)));
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_sceneDsvHeap)));
 
         // Describe and create a constant buffer view (CBV) descriptor heap.
         D3D12_DESCRIPTOR_HEAP_DESC cbvHeapDesc = {};
         cbvHeapDesc.NumDescriptors = Settings::TriangleCount * Settings::SceneConstantBufferFrames;
         cbvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         cbvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&cbvHeapDesc, IID_PPV_ARGS(&m_sceneCbvHeap)));
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&cbvHeapDesc, IID_PPV_ARGS(&m_sceneCbvHeap)));
     }
 
     // Post-process descriptor heaps.
@@ -165,28 +164,28 @@ void D3D12LinkedGpusAffinity::LoadPipeline()
         postRtvHeapDesc.NumDescriptors = Settings::BackBufferCount;
         postRtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
         postRtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&postRtvHeapDesc, IID_PPV_ARGS(&m_postRtvHeap)));
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&postRtvHeapDesc, IID_PPV_ARGS(&m_postRtvHeap)));
 
         // Describe and create a shader resource view (SRV) descriptor heap.
         D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
         srvHeapDesc.NumDescriptors = Settings::SceneHistoryCount;
         srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_postSrvHeap)));
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_postSrvHeap)));
 
         // Describe and create a sampler descriptor heap.
         D3D12_DESCRIPTOR_HEAP_DESC samplerHeapDesc = {};
         samplerHeapDesc.NumDescriptors = 1;
         samplerHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
         samplerHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&samplerHeapDesc, IID_PPV_ARGS(&m_postSamplerHeap)));
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&samplerHeapDesc, IID_PPV_ARGS(&m_postSamplerHeap)));
     }
 
     // Create command allocators for each buffered frame.
     for (UINT n = 0; n < Settings::FrameCount; n++)
     {
-        ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_sceneCommandAllocators[n])));
-        ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_postCommandAllocators[n])));
+        ThrowIfFailed(m_d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_sceneCommandAllocators[n])));
+        ThrowIfFailed(m_d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_postCommandAllocators[n])));
     }
 }
 
@@ -200,7 +199,7 @@ void D3D12LinkedGpusAffinity::LoadAssets()
         // This is the highest version the sample supports. If CheckFeatureSupport succeeds, the HighestVersion returned will not be greater than this.
         featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
 
-        if (FAILED(m_device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
+        if (FAILED(m_d3dDevice->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
         {
             featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
         }
@@ -220,7 +219,7 @@ void D3D12LinkedGpusAffinity::LoadAssets()
             ComPtr<ID3DBlob> signature;
             ComPtr<ID3DBlob> error;
             ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&sceneRootSignatureDesc, featureData.HighestVersion, &signature, &error));
-            ThrowIfFailed(m_device->CreateRootSignature(Settings::SharedNodeMask, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_sceneRootSignature)));
+            ThrowIfFailed(m_d3dDevice->CreateRootSignature(Settings::SharedNodeMask, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_sceneRootSignature)));
         }
 
         // Create a root signature for the post-process pass.
@@ -243,7 +242,7 @@ void D3D12LinkedGpusAffinity::LoadAssets()
             ComPtr<ID3DBlob> signature;
             ComPtr<ID3DBlob> error;
             ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&postRootSignatureDesc, featureData.HighestVersion, &signature, &error));
-            ThrowIfFailed(m_device->CreateRootSignature(Settings::SharedNodeMask, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_postRootSignature)));
+            ThrowIfFailed(m_d3dDevice->CreateRootSignature(Settings::SharedNodeMask, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_postRootSignature)));
         }
     }
 
@@ -271,7 +270,7 @@ void D3D12LinkedGpusAffinity::LoadAssets()
         psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
         psoDesc.SampleDesc.Count = 1;
 
-        ThrowIfFailed(m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_scenePipelineState)));
+        ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_scenePipelineState)));
 
         // Define the vertex input layout for the post-process fullscreen quad.
         D3D12_INPUT_ELEMENT_DESC postInputElementDescs[] =
@@ -296,7 +295,7 @@ void D3D12LinkedGpusAffinity::LoadAssets()
         postPsoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
         postPsoDesc.SampleDesc.Count = 1;
 
-        ThrowIfFailed(m_device->CreateGraphicsPipelineState(&postPsoDesc, IID_PPV_ARGS(&m_postPipelineState)));
+        ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&postPsoDesc, IID_PPV_ARGS(&m_postPipelineState)));
     }
 
     // Single-use command allocator/list for resource initialization.
@@ -306,22 +305,22 @@ void D3D12LinkedGpusAffinity::LoadAssets()
     // Set the AffinityMask to Settings::SharedNodeMask to make the Affinity layer
     // create n allocators and n command lists and execute the following setup commands
     // on all GPU nodes.
-    ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator), Settings::SharedNodeMask));
-    ThrowIfFailed(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator.Get(), nullptr, IID_PPV_ARGS(&commandList), Settings::SharedNodeMask));
+    ThrowIfFailed(m_d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator), Settings::SharedNodeMask));
+    ThrowIfFailed(m_d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator.Get(), nullptr, IID_PPV_ARGS(&commandList), Settings::SharedNodeMask));
 
     // Create command lists for the scene and post-processing passes.
     {
-        ThrowIfFailed(m_device->CreateCommandList(
+        ThrowIfFailed(m_d3dDevice->CreateCommandList(
             0,
             D3D12_COMMAND_LIST_TYPE_DIRECT,
-            m_sceneCommandAllocators[m_frameIndex].Get(),
+            m_sceneCommandAllocators[m_d3dCurrentFrameIndex].Get(),
             m_scenePipelineState.Get(),
             IID_PPV_ARGS(&m_sceneCommandList)));
 
-        ThrowIfFailed(m_device->CreateCommandList(
+        ThrowIfFailed(m_d3dDevice->CreateCommandList(
             0,
             D3D12_COMMAND_LIST_TYPE_DIRECT,
-            m_postCommandAllocators[m_frameIndex].Get(),
+            m_postCommandAllocators[m_d3dCurrentFrameIndex].Get(),
             m_postPipelineState.Get(),
             IID_PPV_ARGS(&m_postCommandList)));
 
@@ -347,7 +346,7 @@ void D3D12LinkedGpusAffinity::LoadAssets()
 
         const UINT vertexBufferSize = sizeof(vertices);
 
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
@@ -355,7 +354,7 @@ void D3D12LinkedGpusAffinity::LoadAssets()
             nullptr,
             IID_PPV_ARGS(&m_sceneVertexBuffer)));
 
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
@@ -392,7 +391,7 @@ void D3D12LinkedGpusAffinity::LoadAssets()
 
         const UINT vertexBufferSize = sizeof(vertices);
 
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
@@ -400,7 +399,7 @@ void D3D12LinkedGpusAffinity::LoadAssets()
             nullptr,
             IID_PPV_ARGS(&m_postVertexBuffer)));
 
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
@@ -434,7 +433,7 @@ void D3D12LinkedGpusAffinity::LoadAssets()
         // enough resource is created to persist frame data for all GPUs to read from.
         const UINT constantBufferDataSize = Settings::TriangleCount * Settings::SceneConstantBufferFrames * sizeof(SceneConstantBuffer);
 
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(constantBufferDataSize),
@@ -460,7 +459,7 @@ void D3D12LinkedGpusAffinity::LoadAssets()
         {
             for (UINT n = 0; n < Settings::TriangleCount; n++)
             {
-                m_device->CreateConstantBufferView(&cbvDesc, cpuHandle);
+                m_d3dDevice->CreateConstantBufferView(&cbvDesc, cpuHandle);
 
                 cpuHandle.Offset(Settings::CbvSrvDescriptorSize);
                 cbvDesc.BufferLocation += cbvDesc.SizeInBytes;
@@ -489,7 +488,7 @@ void D3D12LinkedGpusAffinity::LoadAssets()
         samplerDesc.MaxAnisotropy = 1;
         samplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
 
-        m_device->CreateSampler(&samplerDesc, m_postSamplerHeap->GetCPUDescriptorHandleForHeapStart());
+        m_d3dDevice->CreateSampler(&samplerDesc, m_postSamplerHeap->GetCPUDescriptorHandleForHeapStart());
     }
 
     m_sceneFence = std::make_shared<LinearFence>(m_graphicsQueue.Get(), Settings::FrameCount);
@@ -517,20 +516,20 @@ void D3D12LinkedGpusAffinity::LoadSizeDependentResources()
     // Set the AffinityMask to Settings::SharedNodeMask to make the Affinity layer
     // create n allocators and n command lists and execute the following setup commands
     // on all GPU nodes.
-    ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator), Settings::SharedNodeMask));
-    ThrowIfFailed(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator.Get(), nullptr, IID_PPV_ARGS(&commandList), Settings::SharedNodeMask));
+    ThrowIfFailed(m_d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator), Settings::SharedNodeMask));
+    ThrowIfFailed(m_d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator.Get(), nullptr, IID_PPV_ARGS(&commandList), Settings::SharedNodeMask));
 
     // Create RTVs for swap chain back buffers.
     CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_postRtvHeap->GetCPUDescriptorHandleForHeapStart());
     for (UINT n = 0; n < Settings::BackBufferCount; n++)
     {
-        ThrowIfFailed(m_swapChain->GetBuffer(n, IID_PPV_ARGS(&m_postRenderTargets[n])));
+        ThrowIfFailed(m_d3dSwapChain->GetBuffer(n, IID_PPV_ARGS(&m_postRenderTargets[n])));
 
-        m_device->CreateRenderTargetView(m_postRenderTargets[n].Get(), nullptr, rtvHandle);
+        m_d3dDevice->CreateRenderTargetView(m_postRenderTargets[n].Get(), nullptr, rtvHandle);
         rtvHandle.Offset(Settings::RtvDescriptorSize);
     }
 
-    m_frameIndex = 0;
+    m_d3dCurrentFrameIndex = 0;
     m_sceneRenderTargetIndex = 0;
     m_nodeIndex = 0;
 
@@ -538,7 +537,7 @@ void D3D12LinkedGpusAffinity::LoadSizeDependentResources()
     // These will be sampled from during the post-processing step.
     {
         D3D12_RESOURCE_DESC renderTargetDesc = m_postRenderTargets[0]->GetDesc();
-        D3D12_RESOURCE_ALLOCATION_INFO info = m_device->GetResourceAllocationInfo(Settings::SharedNodeMask, 1, &renderTargetDesc);
+        D3D12_RESOURCE_ALLOCATION_INFO info = m_d3dDevice->GetResourceAllocationInfo(Settings::SharedNodeMask, 1, &renderTargetDesc);
         const UINT64 alignedRenderTargetSize = AlignResource(info.SizeInBytes, info.Alignment);
 
         D3D12_HEAP_DESC heapDesc = {};
@@ -547,7 +546,7 @@ void D3D12LinkedGpusAffinity::LoadSizeDependentResources()
         heapDesc.Properties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
         heapDesc.Flags = D3D12_HEAP_FLAG_DENY_NON_RT_DS_TEXTURES | D3D12_HEAP_FLAG_DENY_BUFFERS;
 
-        ThrowIfFailed(m_device->CreateHeap(&heapDesc, IID_PPV_ARGS(&m_sceneRenderTargetHeap)));
+        ThrowIfFailed(m_d3dDevice->CreateHeap(&heapDesc, IID_PPV_ARGS(&m_sceneRenderTargetHeap)));
 
         CD3DX12_CLEAR_VALUE clearValue(DXGI_FORMAT_R8G8B8A8_UNORM, Settings::ClearColor);
         CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_sceneRtvHeap->GetCPUDescriptorHandleForHeapStart());
@@ -563,7 +562,7 @@ void D3D12LinkedGpusAffinity::LoadSizeDependentResources()
 
         for (UINT sceneIndex = 0; sceneIndex < Settings::SceneHistoryCount; sceneIndex++)
         {
-            ThrowIfFailed(m_device->CreatePlacedResource(
+            ThrowIfFailed(m_d3dDevice->CreatePlacedResource(
                 m_sceneRenderTargetHeap.Get(),
                 alignedRenderTargetSize * sceneIndex,
                 &renderTargetDesc,
@@ -573,10 +572,10 @@ void D3D12LinkedGpusAffinity::LoadSizeDependentResources()
 
             barriers[sceneIndex] = CD3DX12_AFFINITY_RESOURCE_BARRIER::Aliasing(nullptr, m_sceneRenderTargets[sceneIndex].Get());
 
-            m_device->CreateRenderTargetView(m_sceneRenderTargets[sceneIndex].Get(), nullptr, rtvHandle);
+            m_d3dDevice->CreateRenderTargetView(m_sceneRenderTargets[sceneIndex].Get(), nullptr, rtvHandle);
             rtvHandle.Offset(Settings::RtvDescriptorSize);
 
-            m_device->CreateShaderResourceView(m_sceneRenderTargets[sceneIndex].Get(), &srvDesc, srvHandle);
+            m_d3dDevice->CreateShaderResourceView(m_sceneRenderTargets[sceneIndex].Get(), &srvDesc, srvHandle);
             srvHandle.Offset(Settings::CbvSrvDescriptorSize);
         }
 
@@ -621,7 +620,7 @@ void D3D12LinkedGpusAffinity::LoadSizeDependentResources()
         CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
         CD3DX12_CLEAR_VALUE depthOptimizedClearValue(DXGI_FORMAT_D32_FLOAT, 1.0f, 0);
 
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &heapProps,
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_D32_FLOAT, Settings::Width, Settings::Height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
@@ -634,7 +633,7 @@ void D3D12LinkedGpusAffinity::LoadSizeDependentResources()
         depthStencilDesc.Format = DXGI_FORMAT_D32_FLOAT;
         depthStencilDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
 
-        m_device->CreateDepthStencilView(m_sceneDepthStencil.Get(), &depthStencilDesc, m_sceneDsvHeap->GetCPUDescriptorHandleForHeapStart());
+        m_d3dDevice->CreateDepthStencilView(m_sceneDepthStencil.Get(), &depthStencilDesc, m_sceneDsvHeap->GetCPUDescriptorHandleForHeapStart());
     }
 
     ThrowIfFailed(commandList->Close());
@@ -713,7 +712,7 @@ void D3D12LinkedGpusAffinity::OnRender()
         // a result of calling SetFullscreenState.
 
         UINT presentFlags = (m_syncInterval == 0 && m_tearingSupport && m_windowedMode) ? DXGI_PRESENT_ALLOW_TEARING : 0;
-        ThrowIfFailed(m_swapChain->Present(m_syncInterval, presentFlags));
+        ThrowIfFailed(m_d3dSwapChain->Present(m_syncInterval, presentFlags));
 
         MoveToNextFrame();
     }
@@ -730,8 +729,8 @@ void D3D12LinkedGpusAffinity::RenderScene()
     m_sceneFence->Next();
 
     // Record the rendering commands.
-    ThrowIfFailed(m_sceneCommandAllocators[m_frameIndex]->Reset());
-    ThrowIfFailed(m_sceneCommandList->Reset(m_sceneCommandAllocators[m_frameIndex].Get(), m_scenePipelineState.Get()));
+    ThrowIfFailed(m_sceneCommandAllocators[m_d3dCurrentFrameIndex]->Reset());
+    ThrowIfFailed(m_sceneCommandList->Reset(m_sceneCommandAllocators[m_d3dCurrentFrameIndex].Get(), m_scenePipelineState.Get()));
 
     // Set necessary state.
     m_sceneCommandList->SetGraphicsRootSignature(m_sceneRootSignature.Get());
@@ -779,13 +778,13 @@ void D3D12LinkedGpusAffinity::RenderScene()
 
 void D3D12LinkedGpusAffinity::RenderPost()
 {
-    UINT backBufferIndex = m_swapChain->GetCurrentBackBufferIndex();
+    UINT backBufferIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
     CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_postRtvHeap->GetCPUDescriptorHandleForHeapStart(), backBufferIndex, Settings::RtvDescriptorSize);
 
     m_postFence->Next();
 
-    ThrowIfFailed(m_postCommandAllocators[m_frameIndex]->Reset());
-    ThrowIfFailed(m_postCommandList->Reset(m_postCommandAllocators[m_frameIndex].Get(), m_postPipelineState.Get()));
+    ThrowIfFailed(m_postCommandAllocators[m_d3dCurrentFrameIndex]->Reset());
+    ThrowIfFailed(m_postCommandList->Reset(m_postCommandAllocators[m_d3dCurrentFrameIndex].Get(), m_postPipelineState.Get()));
 
     if (m_syncSceneRenderTargets)
     {
@@ -900,18 +899,18 @@ void D3D12LinkedGpusAffinity::OnSizeChanged(UINT width, UINT height, bool minimi
 
         // Resize the swap chain to the desired dimensions.
         DXGI_SWAP_CHAIN_DESC1 swapChainDesc;
-        ThrowIfFailed(m_swapChain->GetDesc1(&swapChainDesc));
-        ThrowIfFailed(m_swapChain->ResizeBuffers(Settings::BackBufferCount, width, height, swapChainDesc.Format, swapChainDesc.Flags));
+        ThrowIfFailed(m_d3dSwapChain->GetDesc1(&swapChainDesc));
+        ThrowIfFailed(m_d3dSwapChain->ResizeBuffers(Settings::BackBufferCount, width, height, swapChainDesc.Format, swapChainDesc.Flags));
 
         BOOL fullscreenState;
-        ThrowIfFailed(m_swapChain->GetFullscreenState(&fullscreenState, nullptr));
+        ThrowIfFailed(m_d3dSwapChain->GetFullscreenState(&fullscreenState, nullptr));
         m_windowedMode = !fullscreenState;
 
         // Re-create render targets.
         LoadSizeDependentResources();
 
         // Reset the node index and align the frameId so that assumptions in post-processing hold.
-        m_nodeIndex = m_swapChain->GetCurrentBackBufferIndex() % Settings::NodeCount;
+        m_nodeIndex = m_d3dSwapChain->GetCurrentBackBufferIndex() % Settings::NodeCount;
         m_frameId += (Settings::SceneHistoryCount - (m_frameId % Settings::SceneHistoryCount));
 
         // Update the m_width, m_height, and m_aspectRatio member variables.
@@ -948,8 +947,8 @@ void D3D12LinkedGpusAffinity::OnKeyDown(UINT8 key)
         {
             BOOL fullscreenState;
 
-            ThrowIfFailed(m_swapChain->GetFullscreenState(&fullscreenState, nullptr));
-            if (FAILED(m_swapChain->SetFullscreenState(!fullscreenState, nullptr)))
+            ThrowIfFailed(m_d3dSwapChain->GetFullscreenState(&fullscreenState, nullptr));
+            if (FAILED(m_d3dSwapChain->SetFullscreenState(!fullscreenState, nullptr)))
             {
                 // Transitions to fullscreen mode can fail when running apps over
                 // terminal services or for some other unexpected reason.  Consider
@@ -999,7 +998,7 @@ void D3D12LinkedGpusAffinity::OnDestroy()
 
     if (!m_tearingSupport)
     {
-        m_swapChain->SetFullscreenState(FALSE, nullptr);
+        m_d3dSwapChain->SetFullscreenState(FALSE, nullptr);
     }
 }
 
@@ -1012,7 +1011,7 @@ void D3D12LinkedGpusAffinity::WaitForGpus()
 // Prepare to render the next frame.
 void D3D12LinkedGpusAffinity::MoveToNextFrame()
 {
-    UINT nextNode = m_swapChain->GetCurrentBackBufferIndex() % Settings::NodeCount;
+    UINT nextNode = m_d3dSwapChain->GetCurrentBackBufferIndex() % Settings::NodeCount;
 
     if (Settings::NodeCount > 1 && nextNode == m_nodeIndex)
     {
@@ -1024,11 +1023,11 @@ void D3D12LinkedGpusAffinity::MoveToNextFrame()
         m_postFence->Signal();
 
         // Advance to the next node.
-        m_device->SwitchToNextNode();
-        m_nodeIndex = m_device->GetActiveNodeIndex();
+        m_d3dDevice->SwitchToNextNode();
+        m_nodeIndex = m_d3dDevice->GetActiveNodeIndex();
         if (m_nodeIndex == 0)
         {
-            m_frameIndex = (m_frameIndex + 1) % Settings::FrameCount;
+            m_d3dCurrentFrameIndex = (m_d3dCurrentFrameIndex + 1) % Settings::FrameCount;
         }
 
         m_sceneRenderTargetIndex = (m_sceneRenderTargetIndex + 1) % Settings::SceneHistoryCount;

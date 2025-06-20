@@ -58,7 +58,7 @@ void D3D12HelloVADecode::DestroyVA()
     DestroyVAProc();
     DestroyVADec();
 
-    VAStatus va_status = vaDestroySurfaces(m_vaDisplay, m_VARenderTargets, FrameCount);
+    VAStatus va_status = vaDestroySurfaces(m_vaDisplay, m_VARenderTargets, FRAME_BUFFER_COUNT);
     ThrowIfFailed(va_status, "vaDestroySurfaces");
 
     va_status = vaDestroySurfaces(m_vaDisplay, &m_VASurfaceNV12, 1);
@@ -179,7 +179,7 @@ void D3D12HelloVADecode::EnsureVAProcSupport() {
     };
 
     ComPtr<ID3D12VideoDevice> spVideoDevice;
-    ThrowIfFailed(m_device->QueryInterface(IID_PPV_ARGS(spVideoDevice.GetAddressOf())));
+    ThrowIfFailed(m_d3dDevice->QueryInterface(IID_PPV_ARGS(spVideoDevice.GetAddressOf())));
     ThrowIfFailed(spVideoDevice->CheckFeatureSupport(D3D12_FEATURE_VIDEO_PROCESS_SUPPORT, &dx12ProcCaps, sizeof(dx12ProcCaps)));
     if ((dx12ProcCaps.SupportFlags & D3D12_VIDEO_PROCESS_SUPPORT_FLAG_SUPPORTED) == 0) {
         ThrowIfFailed(VA_STATUS_ERROR_UNSUPPORTED_ENTRYPOINT, "VAEntrypointVideoProc not supported for conversion DXGI_FORMAT_NV12 to DXGI_FORMAT_R8G8B8A8_UNORM.");
@@ -204,7 +204,7 @@ void D3D12HelloVADecode::InitVAProcContext()
         GetHeight(),
         VA_PROGRESSIVE,
         m_VARenderTargets,
-        FrameCount,
+        FRAME_BUFFER_COUNT,
         &m_vaColorConvCtx);
     ThrowIfFailed(va_status, "vaCreateContext");
         
@@ -256,10 +256,10 @@ void D3D12HelloVADecode::ImportRenderTargetsToVA()
     // The value here is an array of num_surfaces pointers to HANDLE so
     // each handle can be associated with the corresponding output surface
     // in the call to vaCreateSurfaces
-    HANDLE renderTargets[FrameCount];
-    for (size_t i = 0; i < FrameCount; i++)
+    HANDLE renderTargets[FRAME_BUFFER_COUNT];
+    for (size_t i = 0; i < FRAME_BUFFER_COUNT; i++)
     {
-        HRESULT hr = m_device->CreateSharedHandle(m_renderTargets[i].Get(),
+        HRESULT hr = m_d3dDevice->CreateSharedHandle(m_d3dRenderTarget[i].Get(),
             nullptr,
             GENERIC_ALL,
             nullptr,
@@ -276,7 +276,7 @@ void D3D12HelloVADecode::ImportRenderTargetsToVA()
         GetWidth(),
         GetHeight(),
         m_VARenderTargets,
-        FrameCount,
+        FRAME_BUFFER_COUNT,
         createSurfacesAttribList,
         _countof(createSurfacesAttribList));
     ThrowIfFailed(va_status, "vaCreateSurfaces");
@@ -311,16 +311,16 @@ void D3D12HelloVADecode::LoadD3D12Pipeline()
         ThrowIfFailed(D3D12CreateDevice(
             m_adapter.Get(),
             D3D_FEATURE_LEVEL_11_0,
-            IID_PPV_ARGS(&m_device)
+            IID_PPV_ARGS(&m_d3dDevice)
             ));
     }
     else
     {
-        GetHardwareAdapter(factory.Get(), &m_adapter, true);
+        m_adapter = GetHardwareAdapter(factory.Get(), true);
         ThrowIfFailed(D3D12CreateDevice(
             m_adapter.Get(),
             D3D_FEATURE_LEVEL_11_0,
-            IID_PPV_ARGS(&m_device)
+            IID_PPV_ARGS(&m_d3dDevice)
             ));        
     }
 
@@ -329,11 +329,11 @@ void D3D12HelloVADecode::LoadD3D12Pipeline()
     queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 
-    ThrowIfFailed(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_commandQueue)));
+    ThrowIfFailed(m_d3dDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_d3dCommandQueue)));
 
     // Describe and create the swap chain.
     DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
-    swapChainDesc.BufferCount = FrameCount;
+    swapChainDesc.BufferCount = FRAME_BUFFER_COUNT;
     swapChainDesc.Width = m_width;
     swapChainDesc.Height = m_height;
     swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -341,32 +341,30 @@ void D3D12HelloVADecode::LoadD3D12Pipeline()
     swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     swapChainDesc.SampleDesc.Count = 1;
 
-    ComPtr<IDXGISwapChain1> swapChain;
     ThrowIfFailed(factory->CreateSwapChainForHwnd(
-        m_commandQueue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
+        m_d3dCommandQueue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
         Win32Application::GetHwnd(),
         &swapChainDesc,
         nullptr,
         nullptr,
-        &swapChain
+        (IDXGISwapChain1**)m_d3dSwapChain.GetAddressOf()
         ));
 
     // This sample does not support fullscreen transitions.
     ThrowIfFailed(factory->MakeWindowAssociation(Win32Application::GetHwnd(), DXGI_MWA_NO_ALT_ENTER));
 
-    ThrowIfFailed(swapChain.As(&m_swapChain));
-    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+    m_d3dCurrentFrameIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
 
     // Create descriptor heaps.
     {
         // Describe and create a render target view (RTV) descriptor heap.
         D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
-        rtvHeapDesc.NumDescriptors = FrameCount;
+        rtvHeapDesc.NumDescriptors = FRAME_BUFFER_COUNT;
         rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
         rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)));
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)));
 
-        m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        m_rtvDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
     }
 
     // Create frame resources.
@@ -374,30 +372,30 @@ void D3D12HelloVADecode::LoadD3D12Pipeline()
         CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart());
 
         // Create a RTV for each frame.
-        for (UINT n = 0; n < FrameCount; n++)
+        for (UINT n = 0; n < FRAME_BUFFER_COUNT; n++)
         {
-            ThrowIfFailed(m_swapChain->GetBuffer(n, IID_PPV_ARGS(&m_renderTargets[n])));
-            m_device->CreateRenderTargetView(m_renderTargets[n].Get(), nullptr, rtvHandle);
+            ThrowIfFailed(m_d3dSwapChain->GetBuffer(n, IID_PPV_ARGS(&m_d3dRenderTarget[n])));
+            m_d3dDevice->CreateRenderTargetView(m_d3dRenderTarget[n].Get(), nullptr, rtvHandle);
             rtvHandle.Offset(1, m_rtvDescriptorSize);
         }
     }
 
-    ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocator)));
+    ThrowIfFailed(m_d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_d3dCommandAllocator)));
 }
 
 // Load the sample assets.
 void D3D12HelloVADecode::LoadAssets()
 {
     // Create the command list.
-    ThrowIfFailed(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocator.Get(), nullptr, IID_PPV_ARGS(&m_commandList)));
+    ThrowIfFailed(m_d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_d3dCommandAllocator.Get(), nullptr, IID_PPV_ARGS(&m_d3dCommandList)));
 
     // Command lists are created in the recording state, but there is nothing
     // to record yet. The main loop expects it to be closed, so close it now.
-    ThrowIfFailed(m_commandList->Close());
+    ThrowIfFailed(m_d3dCommandList->Close());
 
     // Create synchronization objects.
     {
-        ThrowIfFailed(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
+        ThrowIfFailed(m_d3dDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
         m_fenceValue = 1;
 
         // Create an event handle to use for frame synchronization.
@@ -422,8 +420,8 @@ void D3D12HelloVADecode::OnRender()
     PopulateCommandList();
 
     // Execute the command list.
-    ID3D12CommandList* ppCommandLists[] = { m_commandList.Get() };
-    m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+    ID3D12CommandList* ppCommandLists[] = { m_d3dCommandList.Get() };
+    m_d3dCommandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 
     // Before calling PerformVAWorkload, we must ensure the following:
     //  1. The D3D12 resources to be used must be in D3D12_RESOURCE_STATE_COMMON state
@@ -439,13 +437,13 @@ void D3D12HelloVADecode::OnRender()
     // The VA driver internally manages any other state transitions and it is expected that
     // PerformVAWorkload calls vaSyncSurface, which ensures the affected resources are
     // back in COMMON state and all the GPU work flushed and finished on them
-    // Currently only m_VARenderTargets[m_frameIndex] is used in the VA workload,
+    // Currently only m_VARenderTargets[m_d3dCurrentFrameIndex] is used in the VA workload,
     // transition it back to present mode for the call below.
 
     PerformVAWorkload();
 
     // Present the frame.
-    ThrowIfFailed(m_swapChain->Present(1, 0));
+    ThrowIfFailed(m_d3dSwapChain->Present(1, 0));
 
     WaitForPreviousFrame();
 }
@@ -466,26 +464,26 @@ void D3D12HelloVADecode::PopulateCommandList()
     // Command list allocators can only be reset when the associated 
     // command lists have finished execution on the GPU; apps should use 
     // fences to determine GPU execution progress.
-    ThrowIfFailed(m_commandAllocator->Reset());
+    ThrowIfFailed(m_d3dCommandAllocator->Reset());
 
     // However, when ExecuteCommandList() is called on a particular command 
     // list, that command list can then be reset at any time and must be before 
     // re-recording.
-    ThrowIfFailed(m_commandList->Reset(m_commandAllocator.Get(), m_pipelineState.Get()));
+    ThrowIfFailed(m_d3dCommandList->Reset(m_d3dCommandAllocator.Get(), m_pipelineState.Get()));
 
     // Indicate that the back buffer will be used as a render target.
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+    m_d3dCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_d3dRenderTarget[m_d3dCurrentFrameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
 
-    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_d3dCurrentFrameIndex, m_rtvDescriptorSize);
 
     // Record commands.
     const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
-    m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+    m_d3dCommandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
 
     // Indicate that the back buffer will now be used to present.
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
+    m_d3dCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_d3dRenderTarget[m_d3dCurrentFrameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
 
-    ThrowIfFailed(m_commandList->Close());
+    ThrowIfFailed(m_d3dCommandList->Close());
 }
 
 void D3D12HelloVADecode::WaitForPreviousFrame()
@@ -497,7 +495,7 @@ void D3D12HelloVADecode::WaitForPreviousFrame()
 
     // Signal and increment the fence value.
     const UINT64 fence = m_fenceValue;
-    ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), fence));
+    ThrowIfFailed(m_d3dCommandQueue->Signal(m_fence.Get(), fence));
     m_fenceValue++;
 
     // Wait until the previous frame is finished.
@@ -507,7 +505,7 @@ void D3D12HelloVADecode::WaitForPreviousFrame()
         WaitForSingleObject(m_fenceEvent, INFINITE);
     }
 
-    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+    m_d3dCurrentFrameIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
 }
 
 
@@ -529,7 +527,7 @@ void D3D12HelloVADecode::InitVADecContext()
         GetHeight(),
         VA_PROGRESSIVE,
         m_VARenderTargets,
-        FrameCount,
+        FRAME_BUFFER_COUNT,
         &m_VADecContextId);
     ThrowIfFailed(va_status, "vaCreateContext");
 
@@ -596,7 +594,7 @@ void D3D12HelloVADecode::PerformVAWorkload()
     PerformVADecodeFrame(m_VASurfaceNV12);
 
     // Color convert NV12 into the RGBA render target
-    PerformVABlit(m_vaColorConvCtx, m_vaColorConvBuf, &m_VASurfaceNV12, 1, NULL, NULL, m_VARenderTargets[m_frameIndex], 1.0f);
+    PerformVABlit(m_vaColorConvCtx, m_vaColorConvBuf, &m_VASurfaceNV12, 1, NULL, NULL, m_VARenderTargets[m_d3dCurrentFrameIndex], 1.0f);
 }
 
 void D3D12HelloVADecode::PerformVABlit(

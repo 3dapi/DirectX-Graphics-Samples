@@ -33,7 +33,7 @@ UINT D3D12Fullscreen::m_resolutionIndex = 2;
 
 D3D12Fullscreen::D3D12Fullscreen(UINT width, UINT height, std::wstring name) :
     DXSample(width, height, name),
-    m_frameIndex(0),
+    m_d3dCurrentFrameIndex(0),
     m_pCbvDataBegin(nullptr),
     m_sceneViewport(0.0f, 0.0f, 0.0f, 0.0f),
     m_sceneScissorRect(0, 0, 0, 0),
@@ -86,7 +86,7 @@ void D3D12Fullscreen::LoadPipeline()
         ThrowIfFailed(D3D12CreateDevice(
             warpAdapter.Get(),
             D3D_FEATURE_LEVEL_11_0,
-            IID_PPV_ARGS(&m_device)
+            IID_PPV_ARGS(&m_d3dDevice)
             ));
     }
     else
@@ -97,7 +97,7 @@ void D3D12Fullscreen::LoadPipeline()
         ThrowIfFailed(D3D12CreateDevice(
             hardwareAdapter.Get(),
             D3D_FEATURE_LEVEL_11_0,
-            IID_PPV_ARGS(&m_device)
+            IID_PPV_ARGS(&m_d3dDevice)
             ));
     }
 
@@ -106,8 +106,8 @@ void D3D12Fullscreen::LoadPipeline()
     queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 
-    ThrowIfFailed(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_commandQueue)));
-    NAME_D3D12_OBJECT(m_commandQueue);
+    ThrowIfFailed(m_d3dDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_d3dCommandQueue)));
+    NAME_D3D12_OBJECT(m_d3dCommandQueue);
 
     // Describe and create the swap chain.
     // The resolution of the swap chain buffers will match the resolution of the window, enabling the
@@ -128,7 +128,7 @@ void D3D12Fullscreen::LoadPipeline()
 
     ComPtr<IDXGISwapChain1> swapChain;
     ThrowIfFailed(factory->CreateSwapChainForHwnd(
-        m_commandQueue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
+        m_d3dCommandQueue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
         Win32Application::GetHwnd(),
         &swapChainDesc,
         nullptr,
@@ -143,8 +143,8 @@ void D3D12Fullscreen::LoadPipeline()
         factory->MakeWindowAssociation(Win32Application::GetHwnd(), DXGI_MWA_NO_ALT_ENTER);
     }
 
-    ThrowIfFailed(swapChain.As(&m_swapChain));
-    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+    ThrowIfFailed(swapChain.As(&m_d3dSwapChain));
+    m_d3dCurrentFrameIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
 
     // Create descriptor heaps.
     {
@@ -153,7 +153,7 @@ void D3D12Fullscreen::LoadPipeline()
         rtvHeapDesc.NumDescriptors = FrameCount + 1; // + 1 for the intermediate render target.
         rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
         rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)));
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)));
 
 
         // Describe and create a constant buffer view (CBV) and shader resource view (SRV) descriptor heap.
@@ -161,17 +161,17 @@ void D3D12Fullscreen::LoadPipeline()
         cbvSrvHeapDesc.NumDescriptors = FrameCount + 1; // One CBV per frame and one SRV for the intermediate render target.
         cbvSrvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         cbvSrvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&cbvSrvHeapDesc, IID_PPV_ARGS(&m_cbvSrvHeap)));
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&cbvSrvHeapDesc, IID_PPV_ARGS(&m_cbvSrvHeap)));
 
-        m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-        m_cbvSrvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        m_rtvDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        m_cbvSrvDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     }
 
     // Create command allocators for each frame.
     for (UINT n = 0; n < FrameCount; n++)
     {
-        ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_sceneCommandAllocators[n])));
-        ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_postCommandAllocators[n])));
+        ThrowIfFailed(m_d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_sceneCommandAllocators[n])));
+        ThrowIfFailed(m_d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_postCommandAllocators[n])));
     }
 }
 
@@ -183,7 +183,7 @@ void D3D12Fullscreen::LoadAssets()
     // This is the highest version the sample supports. If CheckFeatureSupport succeeds, the HighestVersion returned will not be greater than this.
     featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
 
-    if (FAILED(m_device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
+    if (FAILED(m_d3dDevice->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
     {
         featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
     }
@@ -210,7 +210,7 @@ void D3D12Fullscreen::LoadAssets()
         ComPtr<ID3DBlob> signature;
         ComPtr<ID3DBlob> error;
         ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &signature, &error));
-        ThrowIfFailed(m_device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_sceneRootSignature)));
+        ThrowIfFailed(m_d3dDevice->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_sceneRootSignature)));
         NAME_D3D12_OBJECT(m_sceneRootSignature);
     }
 
@@ -254,7 +254,7 @@ void D3D12Fullscreen::LoadAssets()
         ComPtr<ID3DBlob> signature;
         ComPtr<ID3DBlob> error;
         ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &signature, &error));
-        ThrowIfFailed(m_device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_postRootSignature)));
+        ThrowIfFailed(m_d3dDevice->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_postRootSignature)));
         NAME_D3D12_OBJECT(m_postRootSignature);
     }
 
@@ -307,7 +307,7 @@ void D3D12Fullscreen::LoadAssets()
         psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
         psoDesc.SampleDesc.Count = 1;
 
-        ThrowIfFailed(m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_scenePipelineState)));
+        ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_scenePipelineState)));
         NAME_D3D12_OBJECT(m_scenePipelineState);
 
         psoDesc.InputLayout = { scaleInputElementDescs, _countof(scaleInputElementDescs) };
@@ -315,7 +315,7 @@ void D3D12Fullscreen::LoadAssets()
         psoDesc.VS = CD3DX12_SHADER_BYTECODE(postVertexShader.Get());
         psoDesc.PS = CD3DX12_SHADER_BYTECODE(postPixelShader.Get());
 
-        ThrowIfFailed(m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_postPipelineState)));
+        ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_postPipelineState)));
         NAME_D3D12_OBJECT(m_postPipelineState);
     }
 
@@ -323,15 +323,15 @@ void D3D12Fullscreen::LoadAssets()
     ComPtr<ID3D12CommandAllocator> commandAllocator;
     ComPtr<ID3D12GraphicsCommandList> commandList;
 
-    ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator)));
-    ThrowIfFailed(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator.Get(), nullptr, IID_PPV_ARGS(&commandList)));
+    ThrowIfFailed(m_d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator)));
+    ThrowIfFailed(m_d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator.Get(), nullptr, IID_PPV_ARGS(&commandList)));
 
     // Create the command lists.
     {
-        ThrowIfFailed(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_sceneCommandAllocators[m_frameIndex].Get(), m_scenePipelineState.Get(), IID_PPV_ARGS(&m_sceneCommandList)));
+        ThrowIfFailed(m_d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_sceneCommandAllocators[m_d3dCurrentFrameIndex].Get(), m_scenePipelineState.Get(), IID_PPV_ARGS(&m_sceneCommandList)));
         NAME_D3D12_OBJECT(m_sceneCommandList);
 
-        ThrowIfFailed(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_postCommandAllocators[m_frameIndex].Get(), m_postPipelineState.Get(), IID_PPV_ARGS(&m_postCommandList)));
+        ThrowIfFailed(m_d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_postCommandAllocators[m_d3dCurrentFrameIndex].Get(), m_postPipelineState.Get(), IID_PPV_ARGS(&m_postCommandList)));
         NAME_D3D12_OBJECT(m_postCommandList);
 
         // Close the command lists.
@@ -358,7 +358,7 @@ void D3D12Fullscreen::LoadAssets()
 
         const UINT vertexBufferSize = sizeof(quadVertices);
 
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
@@ -366,7 +366,7 @@ void D3D12Fullscreen::LoadAssets()
             nullptr,
             IID_PPV_ARGS(&m_sceneVertexBuffer)));
 
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
@@ -407,7 +407,7 @@ void D3D12Fullscreen::LoadAssets()
 
         const UINT vertexBufferSize = sizeof(quadVertices);
 
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
@@ -415,7 +415,7 @@ void D3D12Fullscreen::LoadAssets()
             nullptr,
             IID_PPV_ARGS(&m_postVertexBuffer)));
 
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
@@ -444,7 +444,7 @@ void D3D12Fullscreen::LoadAssets()
 
     // Create the constant buffer.
     {
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(sizeof(SceneConstantBuffer) * FrameCount),
@@ -463,7 +463,7 @@ void D3D12Fullscreen::LoadAssets()
 
         for (UINT n = 0; n < FrameCount; n++)
         {
-            m_device->CreateConstantBufferView(&cbvDesc, cpuHandle);
+            m_d3dDevice->CreateConstantBufferView(&cbvDesc, cpuHandle);
 
             cbvDesc.BufferLocation += sizeof(SceneConstantBuffer);
             cpuHandle.Offset(m_cbvSrvDescriptorSize);
@@ -480,12 +480,12 @@ void D3D12Fullscreen::LoadAssets()
     // the default heap.
     ThrowIfFailed(commandList->Close());
     ID3D12CommandList* ppCommandLists[] = { commandList.Get() };
-    m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+    m_d3dCommandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 
     // Create synchronization objects and wait until assets have been uploaded to the GPU.
     {
-        ThrowIfFailed(m_device->CreateFence(m_fenceValues[m_frameIndex], D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
-        m_fenceValues[m_frameIndex]++;
+        ThrowIfFailed(m_d3dDevice->CreateFence(m_fenceValues[m_d3dCurrentFrameIndex], D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
+        m_fenceValues[m_d3dCurrentFrameIndex]++;
 
         // Create an event handle to use for frame synchronization.
         m_fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
@@ -510,11 +510,11 @@ void D3D12Fullscreen::LoadSizeDependentResources()
         // Create a RTV for each frame.
         for (UINT n = 0; n < FrameCount; n++)
         {
-            ThrowIfFailed(m_swapChain->GetBuffer(n, IID_PPV_ARGS(&m_renderTargets[n])));
-            m_device->CreateRenderTargetView(m_renderTargets[n].Get(), nullptr, rtvHandle);
+            ThrowIfFailed(m_d3dSwapChain->GetBuffer(n, IID_PPV_ARGS(&m_d3dRenderTarget[n])));
+            m_d3dDevice->CreateRenderTargetView(m_d3dRenderTarget[n].Get(), nullptr, rtvHandle);
             rtvHandle.Offset(1, m_rtvDescriptorSize);
 
-            NAME_D3D12_OBJECT_INDEXED(m_renderTargets, n);
+            NAME_D3D12_OBJECT_INDEXED(m_d3dRenderTarget, n);
         }
     }
 
@@ -543,7 +543,7 @@ void D3D12Fullscreen::OnUpdate()
 
     XMStoreFloat4x4(&m_sceneConstantBufferData.transform, XMMatrixTranspose(transform));
 
-    UINT offset = m_frameIndex * sizeof(SceneConstantBuffer);
+    UINT offset = m_d3dCurrentFrameIndex * sizeof(SceneConstantBuffer);
     memcpy(m_pCbvDataBegin + offset, &m_sceneConstantBufferData, sizeof(m_sceneConstantBufferData));
 }
 
@@ -554,16 +554,16 @@ void D3D12Fullscreen::OnRender()
     {
         try
         {
-            PIXBeginEvent(m_commandQueue.Get(), 0, L"Render");
+            PIXBeginEvent(m_d3dCommandQueue.Get(), 0, L"Render");
 
             // Record all the commands we need to render the scene into the command lists.
             PopulateCommandLists();
 
             // Execute the command lists.
             ID3D12CommandList* ppCommandLists[] = { m_sceneCommandList.Get(), m_postCommandList.Get() };
-            m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+            m_d3dCommandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 
-            PIXEndEvent(m_commandQueue.Get());
+            PIXEndEvent(m_d3dCommandQueue.Get());
 
             // When using sync interval 0, it is recommended to always pass the tearing
             // flag when it is supported, even when presenting in windowed mode.
@@ -572,7 +572,7 @@ void D3D12Fullscreen::OnRender()
             UINT presentFlags = (m_tearingSupport && m_windowedMode) ? DXGI_PRESENT_ALLOW_TEARING : 0;
 
             // Present the frame.
-            ThrowIfFailed(m_swapChain->Present(0, presentFlags));
+            ThrowIfFailed(m_d3dSwapChain->Present(0, presentFlags));
 
             MoveToNextFrame();
         }
@@ -594,10 +594,10 @@ void D3D12Fullscreen::OnRender()
 void D3D12Fullscreen::ReleaseD3DResources()
 {
     m_fence.Reset();
-    ResetComPtrArray(&m_renderTargets);
-    m_commandQueue.Reset();
-    m_swapChain.Reset();
-    m_device.Reset();
+    ResetComPtrArray(&m_d3dRenderTarget);
+    m_d3dCommandQueue.Reset();
+    m_d3dSwapChain.Reset();
+    m_d3dDevice.Reset();
 }
 
 // Tears down D3D resources and reinitializes them.
@@ -629,21 +629,21 @@ void D3D12Fullscreen::OnSizeChanged(UINT width, UINT height, bool minimized)
         // current fence value.
         for (UINT n = 0; n < FrameCount; n++)
         {
-            m_renderTargets[n].Reset();
-            m_fenceValues[n] = m_fenceValues[m_frameIndex];
+            m_d3dRenderTarget[n].Reset();
+            m_fenceValues[n] = m_fenceValues[m_d3dCurrentFrameIndex];
         }
 
         // Resize the swap chain to the desired dimensions.
         DXGI_SWAP_CHAIN_DESC desc = {};
-        m_swapChain->GetDesc(&desc);
-        ThrowIfFailed(m_swapChain->ResizeBuffers(FrameCount, width, height, desc.BufferDesc.Format, desc.Flags));
+        m_d3dSwapChain->GetDesc(&desc);
+        ThrowIfFailed(m_d3dSwapChain->ResizeBuffers(FrameCount, width, height, desc.BufferDesc.Format, desc.Flags));
 
         BOOL fullscreenState;
-        ThrowIfFailed(m_swapChain->GetFullscreenState(&fullscreenState, nullptr));
+        ThrowIfFailed(m_d3dSwapChain->GetFullscreenState(&fullscreenState, nullptr));
         m_windowedMode = !fullscreenState;
 
         // Reset the frame index to the current back buffer index.
-        m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+        m_d3dCurrentFrameIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
 
         // Update the width, height, and aspect ratio member variables.
         UpdateForSizeChange(width, height);
@@ -663,7 +663,7 @@ void D3D12Fullscreen::OnDestroy()
     if (!m_tearingSupport)
     {
         // Fullscreen state should always be false before exiting the app.
-        ThrowIfFailed(m_swapChain->SetFullscreenState(FALSE, nullptr));
+        ThrowIfFailed(m_d3dSwapChain->SetFullscreenState(FALSE, nullptr));
     }
 
     CloseHandle(m_fenceEvent);
@@ -689,8 +689,8 @@ void D3D12Fullscreen::OnKeyDown(UINT8 key)
         else
         {
             BOOL fullscreenState;
-            ThrowIfFailed(m_swapChain->GetFullscreenState(&fullscreenState, nullptr));
-            if (FAILED(m_swapChain->SetFullscreenState(!fullscreenState, nullptr)))
+            ThrowIfFailed(m_d3dSwapChain->GetFullscreenState(&fullscreenState, nullptr));
+            if (FAILED(m_d3dSwapChain->SetFullscreenState(!fullscreenState, nullptr)))
             {
                 // Transitions to fullscreen mode can fail when running apps over
                 // terminal services or for some other unexpected reason.  Consider
@@ -745,14 +745,14 @@ void D3D12Fullscreen::PopulateCommandLists()
     // Command list allocators can only be reset when the associated 
     // command lists have finished execution on the GPU; apps should use 
     // fences to determine GPU execution progress.
-    ThrowIfFailed(m_sceneCommandAllocators[m_frameIndex]->Reset());
-    ThrowIfFailed(m_postCommandAllocators[m_frameIndex]->Reset());
+    ThrowIfFailed(m_sceneCommandAllocators[m_d3dCurrentFrameIndex]->Reset());
+    ThrowIfFailed(m_postCommandAllocators[m_d3dCurrentFrameIndex]->Reset());
 
     // However, when ExecuteCommandList() is called on a particular command 
     // list, that command list can then be reset at any time and must be before 
     // re-recording.
-    ThrowIfFailed(m_sceneCommandList->Reset(m_sceneCommandAllocators[m_frameIndex].Get(), m_scenePipelineState.Get()));
-    ThrowIfFailed(m_postCommandList->Reset(m_postCommandAllocators[m_frameIndex].Get(), m_postPipelineState.Get()));
+    ThrowIfFailed(m_sceneCommandList->Reset(m_sceneCommandAllocators[m_d3dCurrentFrameIndex].Get(), m_scenePipelineState.Get()));
+    ThrowIfFailed(m_postCommandList->Reset(m_postCommandAllocators[m_d3dCurrentFrameIndex].Get(), m_postPipelineState.Get()));
 
     // Populate m_sceneCommandList to render scene to intermediate render target.
     {
@@ -762,7 +762,7 @@ void D3D12Fullscreen::PopulateCommandLists()
         ID3D12DescriptorHeap* ppHeaps[] = { m_cbvSrvHeap.Get() };
         m_sceneCommandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
 
-        CD3DX12_GPU_DESCRIPTOR_HANDLE cbvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), m_frameIndex + 1, m_cbvSrvDescriptorSize);
+        CD3DX12_GPU_DESCRIPTOR_HANDLE cbvHandle(m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart(), m_d3dCurrentFrameIndex + 1, m_cbvSrvDescriptorSize);
         m_sceneCommandList->SetGraphicsRootDescriptorTable(0, cbvHandle);
         m_sceneCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         m_sceneCommandList->RSSetViewports(1, &m_sceneViewport);
@@ -794,7 +794,7 @@ void D3D12Fullscreen::PopulateCommandLists()
         // Indicate that the back buffer will be used as a render target and the
         // intermediate render target will be used as a SRV.
         D3D12_RESOURCE_BARRIER barriers[] = {
-            CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET),
+            CD3DX12_RESOURCE_BARRIER::Transition(m_d3dRenderTarget[m_d3dCurrentFrameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET),
             CD3DX12_RESOURCE_BARRIER::Transition(m_intermediateRenderTarget.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
         };
 
@@ -805,7 +805,7 @@ void D3D12Fullscreen::PopulateCommandLists()
         m_postCommandList->RSSetViewports(1, &m_postViewport);
         m_postCommandList->RSSetScissorRects(1, &m_postScissorRect);
 
-        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
+        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_d3dCurrentFrameIndex, m_rtvDescriptorSize);
         m_postCommandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
 
         // Record commands.
@@ -833,35 +833,35 @@ void D3D12Fullscreen::PopulateCommandLists()
 void D3D12Fullscreen::WaitForGpu()
 {
     // Schedule a Signal command in the queue.
-    ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), m_fenceValues[m_frameIndex]));
+    ThrowIfFailed(m_d3dCommandQueue->Signal(m_fence.Get(), m_fenceValues[m_d3dCurrentFrameIndex]));
 
     // Wait until the fence has been processed.
-    ThrowIfFailed(m_fence->SetEventOnCompletion(m_fenceValues[m_frameIndex], m_fenceEvent));
+    ThrowIfFailed(m_fence->SetEventOnCompletion(m_fenceValues[m_d3dCurrentFrameIndex], m_fenceEvent));
     WaitForSingleObjectEx(m_fenceEvent, INFINITE, FALSE);
 
     // Increment the fence value for the current frame.
-    m_fenceValues[m_frameIndex]++;
+    m_fenceValues[m_d3dCurrentFrameIndex]++;
 }
 
 // Prepare to render the next frame.
 void D3D12Fullscreen::MoveToNextFrame()
 {
     // Schedule a Signal command in the queue.
-    const UINT64 currentFenceValue = m_fenceValues[m_frameIndex];
-    ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), currentFenceValue));
+    const UINT64 currentFenceValue = m_fenceValues[m_d3dCurrentFrameIndex];
+    ThrowIfFailed(m_d3dCommandQueue->Signal(m_fence.Get(), currentFenceValue));
 
     // Update the frame index.
-    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+    m_d3dCurrentFrameIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
 
     // If the next frame is not ready to be rendered yet, wait until it is ready.
-    if (m_fence->GetCompletedValue() < m_fenceValues[m_frameIndex])
+    if (m_fence->GetCompletedValue() < m_fenceValues[m_d3dCurrentFrameIndex])
     {
-        ThrowIfFailed(m_fence->SetEventOnCompletion(m_fenceValues[m_frameIndex], m_fenceEvent));
+        ThrowIfFailed(m_fence->SetEventOnCompletion(m_fenceValues[m_d3dCurrentFrameIndex], m_fenceEvent));
         WaitForSingleObjectEx(m_fenceEvent, INFINITE, FALSE);
     }
 
     // Set the fence value for the next frame.
-    m_fenceValues[m_frameIndex] = currentFenceValue + 1;
+    m_fenceValues[m_d3dCurrentFrameIndex] = currentFenceValue + 1;
 }
 
 // Set up the screen viewport and scissor rect to match the current window size and scene rendering resolution.
@@ -917,7 +917,7 @@ void D3D12Fullscreen::LoadSceneResolutionDependentResources()
 
     // Create RTV for the intermediate render target.
     {
-        D3D12_RESOURCE_DESC swapChainDesc = m_renderTargets[m_frameIndex]->GetDesc();
+        D3D12_RESOURCE_DESC swapChainDesc = m_d3dRenderTarget[m_d3dCurrentFrameIndex]->GetDesc();
         const CD3DX12_CLEAR_VALUE clearValue(swapChainDesc.Format, ClearColor);
         const CD3DX12_RESOURCE_DESC renderTargetDesc = CD3DX12_RESOURCE_DESC::Tex2D(
             swapChainDesc.Format,
@@ -930,19 +930,19 @@ void D3D12Fullscreen::LoadSceneResolutionDependentResources()
             D3D12_TEXTURE_LAYOUT_UNKNOWN, 0u);
 
         CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), FrameCount, m_rtvDescriptorSize);
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
             &renderTargetDesc,
             D3D12_RESOURCE_STATE_RENDER_TARGET,
             &clearValue,
             IID_PPV_ARGS(&m_intermediateRenderTarget)));
-        m_device->CreateRenderTargetView(m_intermediateRenderTarget.Get(), nullptr, rtvHandle);
+        m_d3dDevice->CreateRenderTargetView(m_intermediateRenderTarget.Get(), nullptr, rtvHandle);
         NAME_D3D12_OBJECT(m_intermediateRenderTarget);
     }
 
     // Create SRV for the intermediate render target.
-    m_device->CreateShaderResourceView(m_intermediateRenderTarget.Get(), nullptr, m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart());
+    m_d3dDevice->CreateShaderResourceView(m_intermediateRenderTarget.Get(), nullptr, m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart());
 }
 
 void D3D12Fullscreen::UpdateTitle() 

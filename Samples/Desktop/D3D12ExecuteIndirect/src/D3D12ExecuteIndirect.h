@@ -114,14 +114,14 @@ private:
     CD3DX12_VIEWPORT m_viewport;
     CD3DX12_RECT m_scissorRect;
     D3D12_RECT m_cullingScissorRect;
-    ComPtr<IDXGISwapChain3> m_swapChain;
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[FrameCount];
     ComPtr<ID3D12CommandAllocator> m_commandAllocators[FrameCount];
     ComPtr<ID3D12CommandAllocator> m_computeCommandAllocators[FrameCount];
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
+    ComPtr<ID3D12CommandQueue> m_d3dCommandQueue;
     ComPtr<ID3D12CommandQueue> m_computeCommandQueue;
-    ComPtr<ID3D12RootSignature> m_rootSignature;
+    ComPtr<ID3D12RootSignature> m_d3dRootSignature;
     ComPtr<ID3D12RootSignature> m_computeRootSignature;
     ComPtr<ID3D12CommandSignature> m_commandSignature;
     ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
@@ -129,7 +129,7 @@ private:
     ComPtr<ID3D12DescriptorHeap> m_cbvSrvUavHeap;
     UINT m_rtvDescriptorSize;
     UINT m_cbvSrvUavDescriptorSize;
-    UINT m_frameIndex;
+    UINT m_d3dCurrentFrameIndex;
 
     // Synchronization objects.
     ComPtr<ID3D12Fence> m_fence;
@@ -144,7 +144,7 @@ private:
     ComPtr<ID3D12GraphicsCommandList> m_computeCommandList;
     ComPtr<ID3D12Resource> m_vertexBuffer;
     ComPtr<ID3D12Resource> m_constantBuffer;
-    ComPtr<ID3D12Resource> m_depthStencil;
+    ComPtr<ID3D12Resource> m_d3dDepthStencil;
     ComPtr<ID3D12Resource> m_commandBuffer;
     ComPtr<ID3D12Resource> m_processedCommandBuffers[FrameCount];
     ComPtr<ID3D12Resource> m_processedCommandBufferCounterReset;

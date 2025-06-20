@@ -36,9 +36,9 @@ private:
     static const bool AllowDrawDynamicWorkload = false;        // Allow the sample to change the number of triangles drawn, in an attempt to balance the workload between adapters.
     static const bool AllowShaderDynamicWorkload = true;    // Allow the sample to change PS complexity (simulated), in an attempt to balance the workload between adapters.
 
-    static const UINT FrameCount = 3;
+    static const UINT m_RenderTargetCount = 3;
     static const float ClearColor[4];
-    static const UINT MovingAverageFrameCount = 20;
+    static const UINT MovingAveragem_RenderTargetCount = 20;
     static const UINT WindowTextUpdateFrequency = 20;    // Update the window title every x frames.
     static const UINT MaxTriangleCount = 15000;            // The max number of triangles per frame.
     static const float TriangleHalfWidth;                // The x and y offsets used by the triangle vertices.
@@ -49,8 +49,8 @@ private:
     UINT m_psLoopCount;
     UINT m_blurPSLoopCount;
     UINT m_currentTimesIndex;
-    UINT64 m_drawTimes[MovingAverageFrameCount];
-    UINT64 m_blurTimes[MovingAverageFrameCount];
+    UINT64 m_drawTimes[MovingAveragem_RenderTargetCount];
+    UINT64 m_blurTimes[MovingAveragem_RenderTargetCount];
     UINT64 m_drawTimeMovingAverage;
     UINT64 m_blurTimeMovingAverage;
 
@@ -111,20 +111,20 @@ private:
     // Pipeline objects.
     CD3DX12_VIEWPORT m_viewport;
     CD3DX12_RECT m_scissorRect;
-    UINT m_rtvDescriptorSizes[GraphicsAdaptersCount];
+    UINT m_d3dDescriptorSizes[GraphicsAdaptersCount];
     UINT m_srvDescriptorSizes[GraphicsAdaptersCount];
     DXGI_ADAPTER_DESC1 m_adapterDescs[GraphicsAdaptersCount];
-    ComPtr<IDXGISwapChain3> m_swapChain;
-    ComPtr<ID3D12Device> m_devices[GraphicsAdaptersCount];
-    ComPtr<ID3D12CommandAllocator> m_directCommandAllocators[GraphicsAdaptersCount][FrameCount];
-    ComPtr<ID3D12CommandAllocator> m_copyCommandAllocators[FrameCount];
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
+    ComPtr<ID3D12Device> m_d3dDevices[GraphicsAdaptersCount];
+    ComPtr<ID3D12CommandAllocator> m_directCommandAllocators[GraphicsAdaptersCount][m_RenderTargetCount];
+    ComPtr<ID3D12CommandAllocator> m_copyCommandAllocators[m_RenderTargetCount];
     ComPtr<ID3D12CommandQueue> m_directCommandQueues[GraphicsAdaptersCount];
     ComPtr<ID3D12CommandQueue> m_copyCommandQueue;
-    ComPtr<ID3D12RootSignature> m_rootSignature;
+    ComPtr<ID3D12RootSignature> m_d3dRootSignature;
     ComPtr<ID3D12RootSignature> m_blurRootSignature;
-    ComPtr<ID3D12PipelineState> m_pipelineState;
+    ComPtr<ID3D12PipelineState> m_d3dPipelineState;
     ComPtr<ID3D12PipelineState> m_blurPipelineStates[2];
-    ComPtr<ID3D12DescriptorHeap> m_rtvHeaps[GraphicsAdaptersCount];
+    ComPtr<ID3D12DescriptorHeap> m_d3dDecsHeaps[GraphicsAdaptersCount];
     ComPtr<ID3D12DescriptorHeap> m_dsvHeap;
     ComPtr<ID3D12DescriptorHeap> m_cbvSrvUavHeap;
     ComPtr<ID3D12GraphicsCommandList> m_directCommandLists[GraphicsAdaptersCount];
@@ -137,7 +137,7 @@ private:
     UINT64 m_currentPresentFenceValue;
     UINT64 m_currentRenderFenceValue;
     UINT64 m_currentCrossAdapterFenceValue;
-    UINT64 m_frameFenceValues[FrameCount];
+    UINT64 m_frameFenceValues[m_RenderTargetCount];
     HANDLE m_fenceEvents[GraphicsAdaptersCount];
 
     // Asset objects.
@@ -147,7 +147,7 @@ private:
     ComPtr<ID3D12Resource> m_workloadConstantBuffer;
     ComPtr<ID3D12Resource> m_blurWorkloadConstantBuffer;
     ComPtr<ID3D12Resource> m_blurConstantBuffer;
-    ComPtr<ID3D12Resource> m_depthStencil;
+    ComPtr<ID3D12Resource> m_d3dDepthStencil;
     D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
     D3D12_VERTEX_BUFFER_VIEW m_fullscreenQuadVertexBufferView;
     std::vector<SceneConstantBuffer> m_constantBufferData;
@@ -158,10 +158,10 @@ private:
     WorkloadConstantBufferData m_blurWorkloadConstantBufferData;
     WorkloadConstantBufferData* m_pBlurWorkloadCbvDataBegin;
     ComPtr<ID3D12Heap> m_crossAdapterResourceHeaps[GraphicsAdaptersCount];
-    ComPtr<ID3D12Resource> m_crossAdapterResources[GraphicsAdaptersCount][FrameCount];
+    ComPtr<ID3D12Resource> m_crossAdapterResources[GraphicsAdaptersCount][m_RenderTargetCount];
     BOOL m_crossAdapterTextureSupport;
-    ComPtr<ID3D12Resource> m_secondaryAdapterTextures[FrameCount];            // Only used if cross adapter texture support is unavailable.
-    ComPtr<ID3D12Resource> m_renderTargets[GraphicsAdaptersCount][FrameCount];
+    ComPtr<ID3D12Resource> m_secondaryAdapterTextures[m_RenderTargetCount];            // Only used if cross adapter texture support is unavailable.
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[GraphicsAdaptersCount][m_RenderTargetCount];
     ComPtr<ID3D12Resource> m_intermediateBlurRenderTarget;
     ComPtr<ID3D12QueryHeap> m_timestampQueryHeaps[GraphicsAdaptersCount];
     ComPtr<ID3D12Resource> m_timestampResultBuffers[GraphicsAdaptersCount];

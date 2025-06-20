@@ -131,21 +131,21 @@ void D3D12VariableRateShading::LoadPipeline()
     ThrowIfFailed(D3D12CreateDevice(
         hardwareAdapter.Get(),
         D3D_FEATURE_LEVEL_11_0,
-        IID_PPV_ARGS(&m_device)
+        IID_PPV_ARGS(&m_d3dDevice)
     ));
-    NAME_D3D12_OBJECT(m_device);
+    NAME_D3D12_OBJECT(m_d3dDevice);
 
     // Describe and create the command queue.
     D3D12_COMMAND_QUEUE_DESC queueDesc = {};
     queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 
-    ThrowIfFailed(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_commandQueue)));
-    NAME_D3D12_OBJECT(m_commandQueue);
+    ThrowIfFailed(m_d3dDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_d3dCommandQueue)));
+    NAME_D3D12_OBJECT(m_d3dCommandQueue);
 
     // Describe and create the swap chain.
     DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
-    swapChainDesc.BufferCount = FrameCount;
+    swapChainDesc.BufferCount = m_RenderTargetCount;
     swapChainDesc.Width = m_width;
     swapChainDesc.Height = m_height;
     swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -158,19 +158,19 @@ void D3D12VariableRateShading::LoadPipeline()
 
     ComPtr<IDXGISwapChain1> swapChain;
     ThrowIfFailed(factory->CreateSwapChainForCoreWindow(
-        m_commandQueue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
+        m_d3dCommandQueue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
         reinterpret_cast<IUnknown*>(Windows::UI::Core::CoreWindow::GetForCurrentThread()),
         &swapChainDesc,
         nullptr,
         &swapChain
     ));
 
-    ThrowIfFailed(swapChain.As(&m_swapChain));
-    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+    ThrowIfFailed(swapChain.As(&m_d3dSwapChain));
+    m_frameIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
 
     // Create synchronization objects.
     {
-        ThrowIfFailed(m_device->CreateFence(m_fenceValues[m_frameIndex], D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
+        ThrowIfFailed(m_d3dDevice->CreateFence(m_fenceValues[m_frameIndex], D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
         m_fenceValues[m_frameIndex]++;
 
         // Create an event handle to use for frame synchronization.
@@ -187,7 +187,7 @@ void D3D12VariableRateShading::LoadAssets()
 {
     if (!m_scene)
     {
-        m_scene = make_unique<VariableRateShadingScene>(FrameCount, this);
+        m_scene = make_unique<VariableRateShadingScene>(m_RenderTargetCount, this);
     }
 
     // Create a temporary command queue and command list for initializing data on the GPU.
@@ -196,18 +196,18 @@ void D3D12VariableRateShading::LoadAssets()
     queueDesc.Type = D3D12_COMMAND_LIST_TYPE_COPY;
 
     ComPtr<ID3D12CommandQueue> copyCommandQueue;
-    ThrowIfFailed(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&copyCommandQueue)));
+    ThrowIfFailed(m_d3dDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&copyCommandQueue)));
     NAME_D3D12_OBJECT(copyCommandQueue);
 
     ComPtr<ID3D12CommandAllocator> commandAllocator;
-    ThrowIfFailed(m_device->CreateCommandAllocator(queueDesc.Type, IID_PPV_ARGS(&commandAllocator)));
+    ThrowIfFailed(m_d3dDevice->CreateCommandAllocator(queueDesc.Type, IID_PPV_ARGS(&commandAllocator)));
     NAME_D3D12_OBJECT(commandAllocator);
 
     ComPtr<ID3D12GraphicsCommandList> commandList;
-    ThrowIfFailed(m_device->CreateCommandList(0, queueDesc.Type, commandAllocator.Get(), nullptr, IID_PPV_ARGS(&commandList)));
+    ThrowIfFailed(m_d3dDevice->CreateCommandList(0, queueDesc.Type, commandAllocator.Get(), nullptr, IID_PPV_ARGS(&commandList)));
     NAME_D3D12_OBJECT(commandList);
 
-    m_scene->Initialize(m_device.Get(), m_commandQueue.Get(), commandList.Get(), m_frameIndex);
+    m_scene->Initialize(m_d3dDevice.Get(), m_d3dCommandQueue.Get(), commandList.Get(), m_frameIndex);
 
     ThrowIfFailed(commandList->Close());
 
@@ -221,20 +221,20 @@ void D3D12VariableRateShading::LoadAssets()
 // Load resources that are dependent on the size of the main window.
 void D3D12VariableRateShading::LoadSizeDependentResources()
 {
-    for (UINT i = 0; i < FrameCount; i++)
+    for (UINT i = 0; i < m_RenderTargetCount; i++)
     {
-        ThrowIfFailed(m_swapChain->GetBuffer(i, IID_PPV_ARGS(&m_renderTargets[i])));
+        ThrowIfFailed(m_d3dSwapChain->GetBuffer(i, IID_PPV_ARGS(&m_d3dRenderTarget[i])));
     }
 
-    m_scene->LoadSizeDependentResources(m_device.Get(), m_renderTargets, m_width, m_height);
+    m_scene->LoadSizeDependentResources(m_d3dDevice.Get(), m_d3dRenderTarget, m_width, m_height);
 
     if (m_enableUI)
     {
         if (!m_uiLayer)
         {
-            m_uiLayer = make_unique<UILayer>(FrameCount, m_device.Get(), m_commandQueue.Get());
+            m_uiLayer = make_unique<UILayer>(m_RenderTargetCount, m_d3dDevice.Get(), m_d3dCommandQueue.Get());
         }
-        m_uiLayer->Resize(m_renderTargets, m_width, m_height);
+        m_uiLayer->Resize(m_d3dRenderTarget, m_width, m_height);
     }
 }
 
@@ -246,9 +246,9 @@ void D3D12VariableRateShading::ReleaseSizeDependentResources()
     {
         m_uiLayer.reset();
     }
-    for (UINT i = 0; i < FrameCount; i++)
+    for (UINT i = 0; i < m_RenderTargetCount; i++)
     {
-        m_renderTargets[i].Reset();
+        m_d3dRenderTarget[i].Reset();
     }
 }
 
@@ -313,10 +313,10 @@ void D3D12VariableRateShading::ReleaseD3DObjects()
     }
     m_fence.Reset();
 
-    ResetComPtrArray(&m_renderTargets);
-    m_commandQueue.Reset();
-    m_swapChain.Reset();
-    m_device.Reset();
+    ResetComPtrArray(&m_d3dRenderTarget);
+    m_d3dCommandQueue.Reset();
+    m_d3dSwapChain.Reset();
+    m_d3dDevice.Reset();
 
 #if defined(_DEBUG)
     {
@@ -471,7 +471,7 @@ void D3D12VariableRateShading::OnSizeChanged(UINT width, UINT height, bool minim
     {
         UpdateForSizeChange(width, height);
 
-        if (!m_swapChain)
+        if (!m_d3dSwapChain)
         {
             return;
         }
@@ -479,28 +479,28 @@ void D3D12VariableRateShading::OnSizeChanged(UINT width, UINT height, bool minim
         try
         {
             // Flush all current GPU commands.
-            WaitForGpu(m_commandQueue.Get());
+            WaitForGpu(m_d3dCommandQueue.Get());
 
             // Release the resources holding references to the swap chain (requirement of
             // IDXGISwapChain::ResizeBuffers) and reset the frame fence values to the
             // current fence value.
             ReleaseSizeDependentResources();
-            for (UINT i = 0; i < FrameCount; i++)
+            for (UINT i = 0; i < m_RenderTargetCount; i++)
             {
                 m_fenceValues[i] = m_fenceValues[m_frameIndex];
             }
 
             // Resize the swap chain to the desired dimensions.
             DXGI_SWAP_CHAIN_DESC1 desc = {};
-            ThrowIfFailed(m_swapChain->GetDesc1(&desc));
-            ThrowIfFailed(m_swapChain->ResizeBuffers(FrameCount, width, height, desc.Format, desc.Flags));
+            ThrowIfFailed(m_d3dSwapChain->GetDesc1(&desc));
+            ThrowIfFailed(m_d3dSwapChain->ResizeBuffers(m_RenderTargetCount, width, height, desc.Format, desc.Flags));
 
             BOOL fullscreenState;
-            ThrowIfFailed(m_swapChain->GetFullscreenState(&fullscreenState, nullptr));
+            ThrowIfFailed(m_d3dSwapChain->GetFullscreenState(&fullscreenState, nullptr));
             m_windowedMode = !fullscreenState;
 
             // Reset the frame index to the current back buffer index.
-            m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+            m_frameIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
             m_scene->SetFrameIndex(m_frameIndex);
 
             LoadSizeDependentResources();
@@ -541,13 +541,13 @@ void D3D12VariableRateShading::OnRender()
 {
     if (m_windowVisible)
     {
-        PIXBeginEvent(m_commandQueue.Get(), 0, L"Frame");
+        PIXBeginEvent(m_d3dCommandQueue.Get(), 0, L"Frame");
 
         try
         {
             // UILayer will transition backbuffer to a present state.
             const bool bSetBackbufferReadyForPresent = !m_enableUI;
-            m_scene->Render(m_commandQueue.Get(), bSetBackbufferReadyForPresent);
+            m_scene->Render(m_d3dCommandQueue.Get(), bSetBackbufferReadyForPresent);
 
             if (m_enableUI)
             {
@@ -555,14 +555,14 @@ void D3D12VariableRateShading::OnRender()
             }
 
             // Present and update the frame index for the next frame.
-            PIXBeginEvent(m_commandQueue.Get(), 0, L"Presenting to screen");
+            PIXBeginEvent(m_d3dCommandQueue.Get(), 0, L"Presenting to screen");
             // When using sync interval 0, it is recommended to always pass the tearing flag when it is supported.
-            ThrowIfFailed(m_swapChain->Present(0, DXGI_PRESENT_ALLOW_TEARING));
-            PIXEndEvent(m_commandQueue.Get());
+            ThrowIfFailed(m_d3dSwapChain->Present(0, DXGI_PRESENT_ALLOW_TEARING));
+            PIXEndEvent(m_d3dCommandQueue.Get());
 
             MoveToNextFrame();
 
-            PIXEndEvent(m_commandQueue.Get());
+            PIXEndEvent(m_d3dCommandQueue.Get());
         }
         catch (HrException& e)
         {
@@ -584,7 +584,7 @@ void D3D12VariableRateShading::RecreateD3DResources()
     // Give GPU a chance to finish its execution in progress.
     try
     {
-        WaitForGpu(m_commandQueue.Get());
+        WaitForGpu(m_d3dCommandQueue.Get());
     }
     catch (HrException&)
     {
@@ -600,7 +600,7 @@ void D3D12VariableRateShading::OnDestroy()
     // cleaned up by the destructor.
     try
     {
-        WaitForGpu(m_commandQueue.Get());
+        WaitForGpu(m_d3dCommandQueue.Get());
     }
     catch (HrException&)
     {
@@ -656,10 +656,10 @@ void D3D12VariableRateShading::MoveToNextFrame()
 {
     // Schedule a Signal command in the queue.
     const UINT64 currentFenceValue = m_fenceValues[m_frameIndex];
-    ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), currentFenceValue));
+    ThrowIfFailed(m_d3dCommandQueue->Signal(m_fence.Get(), currentFenceValue));
 
     // Update the frame index.
-    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+    m_frameIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
 
     // If the next frame is not ready to be rendered yet, wait until it is ready.
     if (m_fence->GetCompletedValue() < m_fenceValues[m_frameIndex])

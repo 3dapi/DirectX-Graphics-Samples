@@ -67,12 +67,12 @@ private:
     CD3DX12_VIEWPORT                   m_viewport;
     CD3DX12_RECT                       m_scissorRect;
 
-    ComPtr<ID3D12Device2>              m_device;
-    ComPtr<IDXGISwapChain3>            m_swapChain;
-    ComPtr<ID3D12Resource>             m_renderTargets[FrameCount];
-    ComPtr<ID3D12Resource>             m_depthStencil;
+    ComPtr<ID3D12Device2>              m_d3dDevice;
+    ComPtr<IDXGISwapChain3>            m_d3dSwapChain;
+    ComPtr<ID3D12Resource>             m_d3dRenderTarget[FrameCount];
+    ComPtr<ID3D12Resource>             m_d3dDepthStencil;
     ComPtr<ID3D12CommandAllocator>     m_commandAllocators[FrameCount];
-    ComPtr<ID3D12CommandQueue>         m_commandQueue;
+    ComPtr<ID3D12CommandQueue>         m_d3dCommandQueue;
     ComPtr<ID3D12GraphicsCommandList6> m_commandList;
 
     ComPtr<ID3D12DescriptorHeap>       m_rtvHeap;
@@ -89,13 +89,13 @@ private:
     SimpleCamera                       m_debugCam;
     float                              m_fovy;
 
-    ComPtr<ID3D12RootSignature>        m_rootSignature;
+    ComPtr<ID3D12RootSignature>        m_d3dRootSignature;
     ComPtr<ID3D12PipelineState>        m_pipelineState;
 
     std::vector<SceneObject>           m_objects;
 
     // Synchronization objects.
-    uint32_t                           m_frameIndex;
+    uint32_t                           m_d3dCurrentFrameIndex;
     uint32_t                           m_frameCounter;
     HANDLE                             m_fenceEvent;
     ComPtr<ID3D12Fence>                m_fence;

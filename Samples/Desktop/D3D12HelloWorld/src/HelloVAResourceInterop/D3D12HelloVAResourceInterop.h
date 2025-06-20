@@ -61,23 +61,23 @@ private:
     //
     // D3D12 Objects
     //
-    static const UINT FrameCount = 2;
+    static const UINT FRAME_BUFFER_COUNT = 2;
 
     // Pipeline objects.
-    ComPtr<IDXGISwapChain3> m_swapChain;
-    ComPtr<IDXGIAdapter1> m_adapter;
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
-    ComPtr<ID3D12CommandAllocator> m_commandAllocator;
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
+    ComPtr<IDXGIAdapter> m_adapter;
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[FRAME_BUFFER_COUNT];
+    ComPtr<ID3D12CommandAllocator> m_d3dCommandAllocator;
+    ComPtr<ID3D12CommandQueue> m_d3dCommandQueue;
     ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
     ComPtr<ID3D12PipelineState> m_pipelineState;
-    ComPtr<ID3D12GraphicsCommandList> m_commandList;
+    ComPtr<ID3D12GraphicsCommandList> m_d3dCommandList;
     ComPtr<IDXGIFactory4> m_factory;
     UINT m_rtvDescriptorSize = 0;
 
     // Synchronization objects.
-    UINT m_frameIndex = 0;
+    UINT m_d3dCurrentFrameIndex = 0;
     HANDLE m_fenceEvent;
     ComPtr<ID3D12Fence> m_fence;
     UINT64 m_fenceValue = 0;
@@ -93,7 +93,7 @@ private:
 
     // Common VA objects / methods
     VADisplay m_vaDisplay = { };
-    VASurfaceID m_VARenderTargets[FrameCount] = { };
+    VASurfaceID m_VARenderTargets[FRAME_BUFFER_COUNT] = { };
     VASurfaceID m_VASurfaceNV12 = 0;
     VAProcPipelineCaps m_ProcPipelineCaps = { };
     void LoadVAPipeline();

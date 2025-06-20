@@ -14,7 +14,7 @@
 
 D3D1211on12::D3D1211on12(UINT width, UINT height, std::wstring name) :
     DXSample(width, height, name),
-    m_frameIndex(0),
+    m_d3dCurrentFrameIndex(0),
     m_viewport(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)),
     m_scissorRect(0, 0, static_cast<LONG>(width), static_cast<LONG>(height)),
     m_rtvDescriptorSize(0),
@@ -68,8 +68,7 @@ void D3D1211on12::LoadPipeline()
     }
     else
     {
-        ComPtr<IDXGIAdapter1> hardwareAdapter;
-        GetHardwareAdapter(factory.Get(), &hardwareAdapter);
+        ComPtr<IDXGIAdapter> hardwareAdapter = GetHardwareAdapter(factory.Get());
 
         ThrowIfFailed(D3D12CreateDevice(
             hardwareAdapter.Get(),
@@ -144,7 +143,7 @@ void D3D1211on12::LoadPipeline()
     ThrowIfFailed(factory->MakeWindowAssociation(Win32Application::GetHwnd(), DXGI_MWA_NO_ALT_ENTER));
 
     ThrowIfFailed(swapChain.As(&m_swapChain));
-    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+    m_d3dCurrentFrameIndex = m_swapChain->GetCurrentBackBufferIndex();
 
     // Create an 11 device wrapped around the 12 device and share
     // 12's command queue.
@@ -303,7 +302,7 @@ void D3D1211on12::LoadAssets()
         NAME_D3D12_OBJECT(m_pipelineState);
     }
 
-    ThrowIfFailed(m_d3d12Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[m_frameIndex].Get(), m_pipelineState.Get(), IID_PPV_ARGS(&m_commandList)));
+    ThrowIfFailed(m_d3d12Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[m_d3dCurrentFrameIndex].Get(), m_pipelineState.Get(), IID_PPV_ARGS(&m_commandList)));
     NAME_D3D12_OBJECT(m_commandList);
 
     // Create D2D/DWrite objects for rendering text.
@@ -383,8 +382,8 @@ void D3D1211on12::LoadAssets()
 
     // Create synchronization objects and wait until assets have been uploaded to the GPU.
     {
-        ThrowIfFailed(m_d3d12Device->CreateFence(m_fenceValues[m_frameIndex], D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fence.GetAddressOf())));
-        m_fenceValues[m_frameIndex]++;
+        ThrowIfFailed(m_d3d12Device->CreateFence(m_fenceValues[m_d3dCurrentFrameIndex], D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fence.GetAddressOf())));
+        m_fenceValues[m_d3dCurrentFrameIndex]++;
 
         // Create an event handle to use for frame synchronization.
         m_fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
@@ -443,12 +442,12 @@ void D3D1211on12::PopulateCommandList()
     // Command list allocators can only be reset when the associated 
     // command lists have finished execution on the GPU; apps should use 
     // fences to determine GPU execution progress.
-    ThrowIfFailed(m_commandAllocators[m_frameIndex]->Reset());
+    ThrowIfFailed(m_commandAllocators[m_d3dCurrentFrameIndex]->Reset());
 
     // However, when ExecuteCommandList() is called on a particular command 
     // list, that command list can then be reset at any time and must be before 
     // re-recording.
-    ThrowIfFailed(m_commandList->Reset(m_commandAllocators[m_frameIndex].Get(), m_pipelineState.Get()));
+    ThrowIfFailed(m_commandList->Reset(m_commandAllocators[m_d3dCurrentFrameIndex].Get(), m_pipelineState.Get()));
 
     // Set necessary state.
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
@@ -456,9 +455,9 @@ void D3D1211on12::PopulateCommandList()
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
 
     // Indicate that the back buffer will be used as a render target.
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_d3dCurrentFrameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
 
-    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_d3dCurrentFrameIndex, m_rtvDescriptorSize);
     m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
 
     // Record commands.
@@ -478,15 +477,15 @@ void D3D1211on12::PopulateCommandList()
 // Render text over D3D12 using D2D via the 11On12 device.
 void D3D1211on12::RenderUI()
 {
-    D2D1_SIZE_F rtSize = m_d2dRenderTargets[m_frameIndex]->GetSize();
+    D2D1_SIZE_F rtSize = m_d2dRenderTargets[m_d3dCurrentFrameIndex]->GetSize();
     D2D1_RECT_F textRect = D2D1::RectF(0, 0, rtSize.width, rtSize.height);
     static const WCHAR text[] = L"11On12";
 
     // Acquire our wrapped render target resource for the current back buffer.
-    m_d3d11On12Device->AcquireWrappedResources(m_wrappedBackBuffers[m_frameIndex].GetAddressOf(), 1);
+    m_d3d11On12Device->AcquireWrappedResources(m_wrappedBackBuffers[m_d3dCurrentFrameIndex].GetAddressOf(), 1);
 
     // Render text directly to the back buffer.
-    m_d2dDeviceContext->SetTarget(m_d2dRenderTargets[m_frameIndex].Get());
+    m_d2dDeviceContext->SetTarget(m_d2dRenderTargets[m_d3dCurrentFrameIndex].Get());
     m_d2dDeviceContext->BeginDraw();
     m_d2dDeviceContext->SetTransform(D2D1::Matrix3x2F::Identity());
     m_d2dDeviceContext->DrawText(
@@ -501,7 +500,7 @@ void D3D1211on12::RenderUI()
     // Release our wrapped render target resource. Releasing 
     // transitions the back buffer resource to the state specified
     // as the OutState when the wrapped resource was created.
-    m_d3d11On12Device->ReleaseWrappedResources(m_wrappedBackBuffers[m_frameIndex].GetAddressOf(), 1);
+    m_d3d11On12Device->ReleaseWrappedResources(m_wrappedBackBuffers[m_d3dCurrentFrameIndex].GetAddressOf(), 1);
 
     // Flush to submit the 11 command list to the shared command queue.
     m_d3d11DeviceContext->Flush();
@@ -511,33 +510,33 @@ void D3D1211on12::RenderUI()
 void D3D1211on12::WaitForGpu()
 {
     // Schedule a Signal command in the queue.
-    ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), m_fenceValues[m_frameIndex]));
+    ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), m_fenceValues[m_d3dCurrentFrameIndex]));
 
     // Wait until the fence has been processed.
-    ThrowIfFailed(m_fence->SetEventOnCompletion(m_fenceValues[m_frameIndex], m_fenceEvent));
+    ThrowIfFailed(m_fence->SetEventOnCompletion(m_fenceValues[m_d3dCurrentFrameIndex], m_fenceEvent));
     WaitForSingleObjectEx(m_fenceEvent, INFINITE, FALSE);
 
     // Increment the fence value for the current frame.
-    m_fenceValues[m_frameIndex]++;
+    m_fenceValues[m_d3dCurrentFrameIndex]++;
 }
 
 // Prepare to render the next frame.
 void D3D1211on12::MoveToNextFrame()
 {
     // Schedule a Signal command in the queue.
-    const UINT64 currentFenceValue = m_fenceValues[m_frameIndex];
+    const UINT64 currentFenceValue = m_fenceValues[m_d3dCurrentFrameIndex];
     ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), currentFenceValue));
 
     // Update the frame index.
-    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+    m_d3dCurrentFrameIndex = m_swapChain->GetCurrentBackBufferIndex();
 
     // If the next frame is not ready to be rendered yet, wait until it is ready.
-    if (m_fence->GetCompletedValue() < m_fenceValues[m_frameIndex])
+    if (m_fence->GetCompletedValue() < m_fenceValues[m_d3dCurrentFrameIndex])
     {
-        ThrowIfFailed(m_fence->SetEventOnCompletion(m_fenceValues[m_frameIndex], m_fenceEvent));
+        ThrowIfFailed(m_fence->SetEventOnCompletion(m_fenceValues[m_d3dCurrentFrameIndex], m_fenceEvent));
         WaitForSingleObjectEx(m_fenceEvent, INFINITE, FALSE);
     }
 
     // Set the fence value for the next frame.
-    m_fenceValues[m_frameIndex] = currentFenceValue + 1;
+    m_fenceValues[m_d3dCurrentFrameIndex] = currentFenceValue + 1;
 }

@@ -200,7 +200,7 @@ void DeviceResources::CreateDeviceResources()
     queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 
-    ThrowIfFailed(m_d3dDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_commandQueue)));
+    ThrowIfFailed(m_d3dDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_d3dCommandQueue)));
 
     // Create descriptor heaps for render target views and depth stencil views.
     D3D12_DESCRIPTOR_HEAP_DESC rtvDescriptorHeapDesc = {};
@@ -255,7 +255,7 @@ void DeviceResources::CreateWindowSizeDependentResources()
     // Release resources that are tied to the swap chain and update fence values.
     for (UINT n = 0; n < m_backBufferCount; n++)
     {
-        m_renderTargets[n].Reset();
+        m_d3dRenderTarget[n].Reset();
         m_fenceValues[n] = m_fenceValues[m_backBufferIndex];
     }
 
@@ -265,10 +265,10 @@ void DeviceResources::CreateWindowSizeDependentResources()
     DXGI_FORMAT backBufferFormat = NoSRGB(m_backBufferFormat);
 
     // If the swap chain already exists, resize it, otherwise create one.
-    if (m_swapChain)
+    if (m_d3dSwapChain)
     {
         // If the swap chain already exists, resize it.
-        HRESULT hr = m_swapChain->ResizeBuffers(
+        HRESULT hr = m_d3dSwapChain->ResizeBuffers(
             m_backBufferCount,
             backBufferWidth,
             backBufferHeight,
@@ -325,14 +325,14 @@ void DeviceResources::CreateWindowSizeDependentResources()
             Win32Application::SetWindowZorderToTopMost(false);
         }
         
-        ThrowIfFailed(m_dxgiFactory->CreateSwapChainForHwnd(m_commandQueue.Get(), m_window, &swapChainDesc, &fsSwapChainDesc, nullptr, &swapChain));
+        ThrowIfFailed(m_dxgiFactory->CreateSwapChainForHwnd(m_d3dCommandQueue.Get(), m_window, &swapChainDesc, &fsSwapChainDesc, nullptr, &swapChain));
         
         if (prevIsFullscreen)
         {
             Win32Application::SetWindowZorderToTopMost(true);
         }
 
-        ThrowIfFailed(swapChain.As(&m_swapChain));
+        ThrowIfFailed(swapChain.As(&m_d3dSwapChain));
 
         // With tearing support enabled we will handle ALT+Enter key presses in the
         // window message loop rather than let DXGI handle it by calling SetFullscreenState.
@@ -346,22 +346,22 @@ void DeviceResources::CreateWindowSizeDependentResources()
     // and create render target views for each of them.
     for (UINT n = 0; n < m_backBufferCount; n++)
     {
-        ThrowIfFailed(m_swapChain->GetBuffer(n, IID_PPV_ARGS(&m_renderTargets[n])));
+        ThrowIfFailed(m_d3dSwapChain->GetBuffer(n, IID_PPV_ARGS(&m_d3dRenderTarget[n])));
 
         wchar_t name[25] = {};
         swprintf_s(name, L"Render target %u", n);
-        m_renderTargets[n]->SetName(name);
+        m_d3dRenderTarget[n]->SetName(name);
 
         D3D12_RENDER_TARGET_VIEW_DESC rtvDesc = {};
         rtvDesc.Format = m_backBufferFormat;
         rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
 
         CD3DX12_CPU_DESCRIPTOR_HANDLE rtvDescriptor(m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), n, m_rtvDescriptorSize);
-        m_d3dDevice->CreateRenderTargetView(m_renderTargets[n].Get(), &rtvDesc, rtvDescriptor);
+        m_d3dDevice->CreateRenderTargetView(m_d3dRenderTarget[n].Get(), &rtvDesc, rtvDescriptor);
     }
 
     // Reset the index to the current back buffer.
-    m_backBufferIndex = m_swapChain->GetCurrentBackBufferIndex();
+    m_backBufferIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
 
     if (m_depthBufferFormat != DXGI_FORMAT_UNKNOWN)
     {
@@ -388,16 +388,16 @@ void DeviceResources::CreateWindowSizeDependentResources()
             &depthStencilDesc,
             D3D12_RESOURCE_STATE_DEPTH_WRITE,
             &depthOptimizedClearValue,
-            IID_PPV_ARGS(&m_depthStencil)
+            IID_PPV_ARGS(&m_d3dDepthStencil)
         ));
 
-        m_depthStencil->SetName(L"Depth stencil");
+        m_d3dDepthStencil->SetName(L"Depth stencil");
 
         D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
         dsvDesc.Format = m_depthBufferFormat;
         dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
 
-        m_d3dDevice->CreateDepthStencilView(m_depthStencil.Get(), &dsvDesc, m_dsvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+        m_d3dDevice->CreateDepthStencilView(m_d3dDepthStencil.Get(), &dsvDesc, m_dsvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
     }
 
     // Set the 3D rendering viewport and scissor rectangle to target the entire window.
@@ -461,16 +461,16 @@ void DeviceResources::HandleDeviceLost()
     for (UINT n = 0; n < m_backBufferCount; n++)
     {
         m_commandAllocators[n].Reset();
-        m_renderTargets[n].Reset();
+        m_d3dRenderTarget[n].Reset();
     }
 
-    m_depthStencil.Reset();
-    m_commandQueue.Reset();
+    m_d3dDepthStencil.Reset();
+    m_d3dCommandQueue.Reset();
     m_commandList.Reset();
     m_fence.Reset();
     m_rtvDescriptorHeap.Reset();
     m_dsvDescriptorHeap.Reset();
-    m_swapChain.Reset();
+    m_d3dSwapChain.Reset();
     m_d3dDevice.Reset();
     m_dxgiFactory.Reset();
     m_adapter.Reset();
@@ -504,7 +504,7 @@ void DeviceResources::Prepare(D3D12_RESOURCE_STATES beforeState)
     if (beforeState != D3D12_RESOURCE_STATE_RENDER_TARGET)
     {
         // Transition the render target into the correct state to allow for drawing into it.
-        D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_backBufferIndex].Get(), beforeState, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(m_d3dRenderTarget[m_backBufferIndex].Get(), beforeState, D3D12_RESOURCE_STATE_RENDER_TARGET);
         m_commandList->ResourceBarrier(1, &barrier);
     }
 }
@@ -515,7 +515,7 @@ void DeviceResources::Present(D3D12_RESOURCE_STATES beforeState)
     if (beforeState != D3D12_RESOURCE_STATE_PRESENT)
     {
         // Transition the render target to the state that allows it to be presented to the display.
-        D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_backBufferIndex].Get(), beforeState, D3D12_RESOURCE_STATE_PRESENT);
+        D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(m_d3dRenderTarget[m_backBufferIndex].Get(), beforeState, D3D12_RESOURCE_STATE_PRESENT);
         m_commandList->ResourceBarrier(1, &barrier);
     }
 
@@ -526,14 +526,14 @@ void DeviceResources::Present(D3D12_RESOURCE_STATES beforeState)
     {
         // Recommended to always use tearing if supported when using a sync interval of 0.
         // Note this will fail if in true 'fullscreen' mode.
-        hr = m_swapChain->Present(0, DXGI_PRESENT_ALLOW_TEARING);
+        hr = m_d3dSwapChain->Present(0, DXGI_PRESENT_ALLOW_TEARING);
     }
     else
     {
         // The first argument instructs DXGI to block until VSync, putting the application
         // to sleep until the next VSync. This ensures we don't waste any cycles rendering
         // frames that will never be displayed to the screen.
-        hr = m_swapChain->Present(1, 0);
+        hr = m_d3dSwapChain->Present(1, 0);
     }
 
     // If the device was reset we must completely reinitialize the renderer.
@@ -559,17 +559,17 @@ void DeviceResources::ExecuteCommandList()
 {
     ThrowIfFailed(m_commandList->Close());
     ID3D12CommandList *commandLists[] = { m_commandList.Get() }; 
-    m_commandQueue->ExecuteCommandLists(ARRAYSIZE(commandLists), commandLists);
+    m_d3dCommandQueue->ExecuteCommandLists(ARRAYSIZE(commandLists), commandLists);
 }
 
 // Wait for pending GPU work to complete.
 void DeviceResources::WaitForGpu() noexcept
 {
-    if (m_commandQueue && m_fence && m_fenceEvent.IsValid())
+    if (m_d3dCommandQueue && m_fence && m_fenceEvent.IsValid())
     {
         // Schedule a Signal command in the GPU queue.
         UINT64 fenceValue = m_fenceValues[m_backBufferIndex];
-        if (SUCCEEDED(m_commandQueue->Signal(m_fence.Get(), fenceValue)))
+        if (SUCCEEDED(m_d3dCommandQueue->Signal(m_fence.Get(), fenceValue)))
         {
             // Wait until the Signal has been processed.
             if (SUCCEEDED(m_fence->SetEventOnCompletion(fenceValue, m_fenceEvent.Get())))
@@ -588,10 +588,10 @@ void DeviceResources::MoveToNextFrame()
 {
     // Schedule a Signal command in the queue.
     const UINT64 currentFenceValue = m_fenceValues[m_backBufferIndex];
-    ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), currentFenceValue));
+    ThrowIfFailed(m_d3dCommandQueue->Signal(m_fence.Get(), currentFenceValue));
 
     // Update the back buffer index.
-    m_backBufferIndex = m_swapChain->GetCurrentBackBufferIndex();
+    m_backBufferIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
 
     // If the next frame is not ready to be rendered yet, wait until it is ready.
     if (m_fence->GetCompletedValue() < m_fenceValues[m_backBufferIndex])
@@ -672,5 +672,5 @@ void DeviceResources::InitializeAdapter(IDXGIAdapter1** ppAdapter)
         }
     }
     
-    *ppAdapter = adapter.Detach();
+    return adapter.Detach();
 }

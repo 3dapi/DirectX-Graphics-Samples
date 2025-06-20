@@ -33,8 +33,8 @@ protected:
     virtual void OnDestroy();
 
 private:
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<IDXGISwapChain3> m_swapChain;
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
     ComPtr<ID3D12CommandQueue> m_graphicsQueue;
     std::vector<ComPtr<ID3D12CommandAllocator>> m_sceneCommandAllocators;
     std::vector<ComPtr<ID3D12CommandAllocator>> m_postCommandAllocators;
@@ -69,7 +69,7 @@ private:
     std::shared_ptr<LinearFence> m_sceneFence;
 
     // A fence to regulate submission of post-processing render passes.
-    // Up to 'Settings::FrameCount' command lists can be in flight on the node at once.
+    // Up to 'Settings::m_RenderTargetCount' command lists can be in flight on the node at once.
     std::shared_ptr<LinearFence> m_postFence;
 
     // Vertex definitions.

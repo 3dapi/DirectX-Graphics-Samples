@@ -30,10 +30,10 @@ class D3D12HDR : public DXSample
 public:
     D3D12HDR(UINT width, UINT height, std::wstring name);
 
-    inline ID3D12Device* GetDevice() { return m_device.Get(); }
-    inline ID3D12CommandQueue* GetCommandQueue() { return m_commandQueue.Get(); }
+    inline ID3D12Device* GetDevice() { return m_d3dDevice.Get(); }
+    inline ID3D12CommandQueue* GetCommandQueue() { return m_d3dCommandQueue.Get(); }
     inline ID3D12Resource* GetUIRenderTarget() { return m_UIRenderTarget.Get(); }
-    inline DXGI_FORMAT GetBackBufferFormat() { return m_swapChainFormats[m_currentSwapChainBitDepth]; }
+    inline DXGI_FORMAT GetBackBufferFormat() { return m_d3dSwapChainFormats[m_currentSwapChainBitDepth]; }
     inline std::wstring GetDisplayCurve()
     {
         return m_rootConstants[DisplayCurve] == sRGB ? L"sRGB" : m_rootConstants[DisplayCurve] == ST2084 ? L"ST.2084" : L"Linear";
@@ -43,7 +43,7 @@ public:
     inline UINT GetHDRMetaDataPoolIndex() { return m_hdrMetaDataPoolIdx; }
 
     static const float HDRMetaDataPool[4][4];
-    static const UINT FrameCount = 2;
+    static const UINT m_RenderTargetCount = 2;
 
 protected:
     virtual void OnInit();
@@ -54,7 +54,7 @@ protected:
     virtual void OnDestroy();
     virtual void OnKeyDown(UINT8 key);
     virtual void OnDisplayChanged();
-    virtual IDXGISwapChain* GetSwapchain() { return m_swapChain.Get(); }
+    virtual IDXGISwapChain* GetSwapchain() { return m_d3dSwapChain.Get(); }
 
 private:
     static const float ClearColor[4];
@@ -128,28 +128,28 @@ private:
     CD3DX12_VIEWPORT m_viewport;
     CD3DX12_RECT m_scissorRect;
     ComPtr<IDXGIFactory4> m_dxgiFactory;
-    ComPtr<IDXGISwapChain4> m_swapChain;
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
+    ComPtr<IDXGISwapChain4> m_d3dSwapChain;
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[m_RenderTargetCount];
     ComPtr<ID3D12Resource> m_intermediateRenderTarget;
     ComPtr<ID3D12Resource> m_UIRenderTarget;
-    ComPtr<ID3D12CommandAllocator> m_commandAllocators[FrameCount];
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
-    ComPtr<ID3D12RootSignature> m_rootSignature;
-    ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
+    ComPtr<ID3D12CommandAllocator> m_d3dCommandAllocators[m_RenderTargetCount];
+    ComPtr<ID3D12CommandQueue> m_d3dCommandQueue;
+    ComPtr<ID3D12RootSignature> m_d3dRootSignature;
+    ComPtr<ID3D12DescriptorHeap> m_d3dDecsHeap;
     ComPtr<ID3D12DescriptorHeap> m_srvHeap;
-    UINT m_rtvDescriptorSize;
+    UINT m_d3dDescriptorSize;
     UINT m_srvDescriptorSize;
-    DXGI_FORMAT m_swapChainFormats[SwapChainBitDepthCount];
+    DXGI_FORMAT m_d3dSwapChainFormats[SwapChainBitDepthCount];
     DXGI_COLOR_SPACE_TYPE m_currentSwapChainColorSpace;
     SwapChainBitDepth m_currentSwapChainBitDepth;
-    bool m_swapChainFormatChanged;
+    bool m_d3dSwapChainFormatChanged;
     DXGI_FORMAT m_intermediateRenderTargetFormat;
     UINT m_dxgiFactoryFlags;
 
     // App resources.
-    ComPtr<ID3D12PipelineState> m_pipelineStates[PipelineStateCount];
-    ComPtr<ID3D12GraphicsCommandList> m_commandList;
+    ComPtr<ID3D12PipelineState> m_d3dPipelineStates[PipelineStateCount];
+    ComPtr<ID3D12GraphicsCommandList> m_d3dCommandList;
     ComPtr<ID3D12Resource> m_vertexBuffer;
     ComPtr<ID3D12Resource> m_vertexBufferUpload;
     D3D12_VERTEX_BUFFER_VIEW m_gradientVertexBufferView;
@@ -171,7 +171,7 @@ private:
     UINT m_frameIndex;
     HANDLE m_fenceEvent;
     ComPtr<ID3D12Fence> m_fence;
-    UINT64 m_fenceValues[FrameCount];
+    UINT64 m_fenceValues[m_RenderTargetCount];
 
     // Track the state of the window.
     // If it's minimized the app may decide not to render frames.

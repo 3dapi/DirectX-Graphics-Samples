@@ -33,7 +33,7 @@ D3D12HeterogeneousMultiadapter::D3D12HeterogeneousMultiadapter(int width, int he
     m_workloadConstantBufferData(),
     m_blurWorkloadConstantBufferData(),
     m_crossAdapterTextureSupport(false),
-    m_rtvDescriptorSizes{},
+    m_d3dDescriptorSizes{},
     m_srvDescriptorSizes{},
     m_drawTimes{},
     m_blurTimes{},
@@ -142,7 +142,7 @@ void D3D12HeterogeneousMultiadapter::LoadPipeline()
     IDXGIAdapter1* ppAdapters[] = { primaryAdapter.Get(), secondaryAdapter.Get() };
     for (UINT i = 0; i < GraphicsAdaptersCount; i++)
     {
-        ThrowIfFailed(D3D12CreateDevice(ppAdapters[i], D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&m_devices[i])));
+        ThrowIfFailed(D3D12CreateDevice(ppAdapters[i], D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&m_d3dDevices[i])));
         ThrowIfFailed(ppAdapters[i]->GetDesc1(&m_adapterDescs[i]));
     }
 
@@ -153,16 +153,16 @@ void D3D12HeterogeneousMultiadapter::LoadPipeline()
 
     for (UINT i = 0; i < GraphicsAdaptersCount; i++)
     {
-        ThrowIfFailed(m_devices[i]->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_directCommandQueues[i])));
+        ThrowIfFailed(m_d3dDevices[i]->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_directCommandQueues[i])));
         ThrowIfFailed(m_directCommandQueues[i]->GetTimestampFrequency(&m_directCommandQueueTimestampFrequencies[i]));
     }
 
     queueDesc.Type = D3D12_COMMAND_LIST_TYPE_COPY;
-    ThrowIfFailed(m_devices[Primary]->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_copyCommandQueue)));
+    ThrowIfFailed(m_d3dDevices[Primary]->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_copyCommandQueue)));
 
     // Describe and create the swap chain on the secondary device because that's where we present from.
     DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
-    swapChainDesc.BufferCount = FrameCount;
+    swapChainDesc.BufferCount = m_RenderTargetCount;
     swapChainDesc.Width = m_width;
     swapChainDesc.Height = m_height;
     swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -179,8 +179,8 @@ void D3D12HeterogeneousMultiadapter::LoadPipeline()
         &swapChain
         ));
 
-    ThrowIfFailed(swapChain.As(&m_swapChain));
-    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+    ThrowIfFailed(swapChain.As(&m_d3dSwapChain));
+    m_frameIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
 
     // Create descriptor heaps.
     {
@@ -188,7 +188,7 @@ void D3D12HeterogeneousMultiadapter::LoadPipeline()
         for (UINT i = 0; i < GraphicsAdaptersCount; i++)
         {
             D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
-            rtvHeapDesc.NumDescriptors = FrameCount;
+            rtvHeapDesc.NumDescriptors = m_RenderTargetCount;
 
             if (i == Secondary)
             {
@@ -198,7 +198,7 @@ void D3D12HeterogeneousMultiadapter::LoadPipeline()
 
             rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
             rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-            ThrowIfFailed(m_devices[i]->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeaps[i])));
+            ThrowIfFailed(m_d3dDevices[i]->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_d3dDecsHeaps[i])));
         }
 
         // Describe and create a depth stencil view (DSV) descriptor heap.
@@ -206,26 +206,26 @@ void D3D12HeterogeneousMultiadapter::LoadPipeline()
         dsvHeapDesc.NumDescriptors = 1;
         dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
         dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        ThrowIfFailed(m_devices[Primary]->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvHeap)));
+        ThrowIfFailed(m_d3dDevices[Primary]->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvHeap)));
 
         // Describe and create a shader resource view (SRV) descriptor heap.
         D3D12_DESCRIPTOR_HEAP_DESC cbvSrvUavHeapDesc = {};
-        cbvSrvUavHeapDesc.NumDescriptors = FrameCount + 1;    // +1 for the intermediate blur render target.
+        cbvSrvUavHeapDesc.NumDescriptors = m_RenderTargetCount + 1;    // +1 for the intermediate blur render target.
         cbvSrvUavHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         cbvSrvUavHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        ThrowIfFailed(m_devices[Secondary]->CreateDescriptorHeap(&cbvSrvUavHeapDesc, IID_PPV_ARGS(&m_cbvSrvUavHeap)));
+        ThrowIfFailed(m_d3dDevices[Secondary]->CreateDescriptorHeap(&cbvSrvUavHeapDesc, IID_PPV_ARGS(&m_cbvSrvUavHeap)));
 
         for (UINT i = 0; i < GraphicsAdaptersCount; i++)
         {
-            m_rtvDescriptorSizes[i] = m_devices[i]->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-            m_srvDescriptorSizes[i] = m_devices[i]->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+            m_d3dDescriptorSizes[i] = m_d3dDevices[i]->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+            m_srvDescriptorSizes[i] = m_d3dDevices[i]->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         }
     }
 
     // Create query heaps and result buffers.
     {
         // Two timestamps for each frame.
-        const UINT resultCount = 2 * FrameCount;
+        const UINT resultCount = 2 * m_RenderTargetCount;
         const UINT resultBufferSize = resultCount * sizeof(UINT64);
 
         D3D12_QUERY_HEAP_DESC timestampHeapDesc = {};
@@ -234,7 +234,7 @@ void D3D12HeterogeneousMultiadapter::LoadPipeline()
 
         for (UINT i = 0; i < GraphicsAdaptersCount; i++)
         {
-            ThrowIfFailed(m_devices[i]->CreateCommittedResource(
+            ThrowIfFailed(m_d3dDevices[i]->CreateCommittedResource(
                 &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_READBACK),
                 D3D12_HEAP_FLAG_NONE,
                 &CD3DX12_RESOURCE_DESC::Buffer(resultBufferSize),
@@ -242,7 +242,7 @@ void D3D12HeterogeneousMultiadapter::LoadPipeline()
                 nullptr,
                 IID_PPV_ARGS(&m_timestampResultBuffers[i])));
 
-            ThrowIfFailed(m_devices[i]->CreateQueryHeap(&timestampHeapDesc, IID_PPV_ARGS(&m_timestampQueryHeaps[i])));
+            ThrowIfFailed(m_d3dDevices[i]->CreateQueryHeap(&timestampHeapDesc, IID_PPV_ARGS(&m_timestampQueryHeaps[i])));
         }
     }
 
@@ -261,34 +261,34 @@ void D3D12HeterogeneousMultiadapter::LoadPipeline()
 
         for (UINT i = 0; i < GraphicsAdaptersCount; i++)
         {
-            CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeaps[i]->GetCPUDescriptorHandleForHeapStart());
+            CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_d3dDecsHeaps[i]->GetCPUDescriptorHandleForHeapStart());
 
             // Create a RTV and a command allocator for each frame.
-            for (UINT n = 0; n < FrameCount; n++)
+            for (UINT n = 0; n < m_RenderTargetCount; n++)
             {
                 if (i == Secondary)
                 {
-                    ThrowIfFailed(m_swapChain->GetBuffer(n, IID_PPV_ARGS(&m_renderTargets[i][n])));
+                    ThrowIfFailed(m_d3dSwapChain->GetBuffer(n, IID_PPV_ARGS(&m_d3dRenderTarget[i][n])));
                 }
                 else
                 {
-                    ThrowIfFailed(m_devices[i]->CreateCommittedResource(
+                    ThrowIfFailed(m_d3dDevices[i]->CreateCommittedResource(
                         &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
                         D3D12_HEAP_FLAG_NONE,
                         &renderTargetDesc,
                         D3D12_RESOURCE_STATE_COMMON,
                         &clearValue,
-                        IID_PPV_ARGS(&m_renderTargets[i][n])));
+                        IID_PPV_ARGS(&m_d3dRenderTarget[i][n])));
                 }
                 
-                m_devices[i]->CreateRenderTargetView(m_renderTargets[i][n].Get(), nullptr, rtvHandle);
-                rtvHandle.Offset(1, m_rtvDescriptorSizes[i]);
+                m_d3dDevices[i]->CreateRenderTargetView(m_d3dRenderTarget[i][n].Get(), nullptr, rtvHandle);
+                rtvHandle.Offset(1, m_d3dDescriptorSizes[i]);
 
-                ThrowIfFailed(m_devices[i]->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_directCommandAllocators[i][n])));
+                ThrowIfFailed(m_d3dDevices[i]->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_directCommandAllocators[i][n])));
 
                 if (i == Primary)
                 {
-                    ThrowIfFailed(m_devices[i]->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COPY, IID_PPV_ARGS(&m_copyCommandAllocators[n])));
+                    ThrowIfFailed(m_d3dDevices[i]->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COPY, IID_PPV_ARGS(&m_copyCommandAllocators[n])));
                 }
             }
         }
@@ -299,7 +299,7 @@ void D3D12HeterogeneousMultiadapter::LoadPipeline()
             // secondary adapter. Support of this feature (or the lack thereof) will
             // determine our sharing strategy for the resource in question.
             D3D12_FEATURE_DATA_D3D12_OPTIONS options = {};
-            ThrowIfFailed(m_devices[Secondary]->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, reinterpret_cast<void*>(&options), sizeof(options)));
+            ThrowIfFailed(m_d3dDevices[Secondary]->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, reinterpret_cast<void*>(&options), sizeof(options)));
             m_crossAdapterTextureSupport = options.CrossAdapterRowMajorTextureSupported;
 
             UINT64 textureSize = 0;
@@ -313,7 +313,7 @@ void D3D12HeterogeneousMultiadapter::LoadPipeline()
                 crossAdapterDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER;
                 crossAdapterDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 
-                D3D12_RESOURCE_ALLOCATION_INFO textureInfo = m_devices[Primary]->GetResourceAllocationInfo(0, 1, &crossAdapterDesc);
+                D3D12_RESOURCE_ALLOCATION_INFO textureInfo = m_d3dDevices[Primary]->GetResourceAllocationInfo(0, 1, &crossAdapterDesc);
                 textureSize = textureInfo.SizeInBytes;
             }
             else
@@ -323,7 +323,7 @@ void D3D12HeterogeneousMultiadapter::LoadPipeline()
                 // texture on the secondary adapter.
 
                 D3D12_PLACED_SUBRESOURCE_FOOTPRINT layout;
-                m_devices[Primary]->GetCopyableFootprints(&renderTargetDesc, 0, 1, 0, &layout, nullptr, nullptr, nullptr);
+                m_d3dDevices[Primary]->GetCopyableFootprints(&renderTargetDesc, 0, 1, 0, &layout, nullptr, nullptr, nullptr);
                 textureSize = Align(layout.Footprint.RowPitch * layout.Footprint.Height);
 
                 // Create a buffer with the same layout as the render target texture.
@@ -332,22 +332,22 @@ void D3D12HeterogeneousMultiadapter::LoadPipeline()
 
             // Create a heap that will be shared by both adapters.
             CD3DX12_HEAP_DESC heapDesc(
-                textureSize * FrameCount,
+                textureSize * m_RenderTargetCount,
                 D3D12_HEAP_TYPE_DEFAULT,
                 0,
                 D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER);
 
-            ThrowIfFailed(m_devices[Primary]->CreateHeap(&heapDesc, IID_PPV_ARGS(&m_crossAdapterResourceHeaps[Primary])));
+            ThrowIfFailed(m_d3dDevices[Primary]->CreateHeap(&heapDesc, IID_PPV_ARGS(&m_crossAdapterResourceHeaps[Primary])));
 
             HANDLE heapHandle = nullptr;
-            ThrowIfFailed(m_devices[Primary]->CreateSharedHandle(
+            ThrowIfFailed(m_d3dDevices[Primary]->CreateSharedHandle(
                 m_crossAdapterResourceHeaps[Primary].Get(),
                 nullptr,
                 GENERIC_ALL,
                 nullptr,
                 &heapHandle));
 
-            HRESULT openSharedHandleResult = m_devices[Secondary]->OpenSharedHandle(heapHandle, IID_PPV_ARGS(&m_crossAdapterResourceHeaps[Secondary]));
+            HRESULT openSharedHandleResult = m_d3dDevices[Secondary]->OpenSharedHandle(heapHandle, IID_PPV_ARGS(&m_crossAdapterResourceHeaps[Secondary]));
 
             // We can close the handle after opening the cross-adapter shared resource.
             CloseHandle(heapHandle);
@@ -355,9 +355,9 @@ void D3D12HeterogeneousMultiadapter::LoadPipeline()
             ThrowIfFailed(openSharedHandleResult);
 
             // Create placed resources for each frame per adapter in the shared heap.
-            for (UINT n = 0; n < FrameCount; n++)
+            for (UINT n = 0; n < m_RenderTargetCount; n++)
             {
-                ThrowIfFailed(m_devices[Primary]->CreatePlacedResource(
+                ThrowIfFailed(m_d3dDevices[Primary]->CreatePlacedResource(
                     m_crossAdapterResourceHeaps[Primary].Get(),
                     textureSize * n,
                     &crossAdapterDesc,
@@ -365,7 +365,7 @@ void D3D12HeterogeneousMultiadapter::LoadPipeline()
                     nullptr,
                     IID_PPV_ARGS(&m_crossAdapterResources[Primary][n])));
 
-                ThrowIfFailed(m_devices[Secondary]->CreatePlacedResource(
+                ThrowIfFailed(m_d3dDevices[Secondary]->CreatePlacedResource(
                     m_crossAdapterResourceHeaps[Secondary].Get(),
                     textureSize * n,
                     &crossAdapterDesc,
@@ -377,7 +377,7 @@ void D3D12HeterogeneousMultiadapter::LoadPipeline()
                 {
                     // If the primary adapter's render target must be shared as a buffer,
                     // create a texture resource to copy it into on the secondary adapter.
-                    ThrowIfFailed(m_devices[Secondary]->CreateCommittedResource(
+                    ThrowIfFailed(m_d3dDevices[Secondary]->CreateCommittedResource(
                         &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
                         D3D12_HEAP_FLAG_NONE,
                         &renderTargetDesc,
@@ -390,9 +390,9 @@ void D3D12HeterogeneousMultiadapter::LoadPipeline()
 
         // Create an intermediate render target and view on the secondary adapter.
         {
-            const D3D12_RESOURCE_DESC intermediateRenderTargetDesc = m_renderTargets[Primary][0]->GetDesc();
+            const D3D12_RESOURCE_DESC intermediateRenderTargetDesc = m_d3dRenderTarget[Primary][0]->GetDesc();
 
-            ThrowIfFailed(m_devices[Secondary]->CreateCommittedResource(
+            ThrowIfFailed(m_d3dDevices[Secondary]->CreateCommittedResource(
                 &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
                 D3D12_HEAP_FLAG_NONE,
                 &intermediateRenderTargetDesc,
@@ -400,21 +400,21 @@ void D3D12HeterogeneousMultiadapter::LoadPipeline()
                 nullptr,
                 IID_PPV_ARGS(&m_intermediateBlurRenderTarget)));
 
-            CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeaps[Secondary]->GetCPUDescriptorHandleForHeapStart(), FrameCount, m_rtvDescriptorSizes[Secondary]);
-            m_devices[Secondary]->CreateRenderTargetView(m_intermediateBlurRenderTarget.Get(), nullptr, rtvHandle);
+            CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_d3dDecsHeaps[Secondary]->GetCPUDescriptorHandleForHeapStart(), m_RenderTargetCount, m_d3dDescriptorSizes[Secondary]);
+            m_d3dDevices[Secondary]->CreateRenderTargetView(m_intermediateBlurRenderTarget.Get(), nullptr, rtvHandle);
         }
         
         // Create SRVs for the shared resources and intermediate render target on the secondary adapter.
         {
             CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvUavHeap->GetCPUDescriptorHandleForHeapStart());
-            for (UINT n = 0; n < FrameCount; n++)
+            for (UINT n = 0; n < m_RenderTargetCount; n++)
             {
                 ID3D12Resource* pSrvResource = m_crossAdapterTextureSupport ? m_crossAdapterResources[Secondary][n].Get() : m_secondaryAdapterTextures[n].Get();
-                m_devices[Secondary]->CreateShaderResourceView(pSrvResource, nullptr, srvHandle);
+                m_d3dDevices[Secondary]->CreateShaderResourceView(pSrvResource, nullptr, srvHandle);
                 srvHandle.Offset(m_srvDescriptorSizes[Secondary]);
             }
 
-            m_devices[Secondary]->CreateShaderResourceView(m_intermediateBlurRenderTarget.Get(), nullptr, srvHandle);
+            m_d3dDevices[Secondary]->CreateShaderResourceView(m_intermediateBlurRenderTarget.Get(), nullptr, srvHandle);
         }
     }
 }
@@ -429,7 +429,7 @@ void D3D12HeterogeneousMultiadapter::LoadAssets()
         // This is the highest version the sample supports. If CheckFeatureSupport succeeds, the HighestVersion returned will not be greater than this.
         featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
 
-        if (FAILED(m_devices[Primary]->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
+        if (FAILED(m_d3dDevices[Primary]->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
         {
             featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
         }
@@ -444,11 +444,11 @@ void D3D12HeterogeneousMultiadapter::LoadAssets()
         ComPtr<ID3DBlob> signature;
         ComPtr<ID3DBlob> error;
         ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &signature, &error));
-        ThrowIfFailed(m_devices[Primary]->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature)));
+        ThrowIfFailed(m_d3dDevices[Primary]->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_d3dRootSignature)));
 
         featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
 
-        if (FAILED(m_devices[Secondary]->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
+        if (FAILED(m_d3dDevices[Secondary]->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
         {
             featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
         }
@@ -476,7 +476,7 @@ void D3D12HeterogeneousMultiadapter::LoadAssets()
         rootSignatureDesc.Init_1_1(_countof(blurRootParameters), blurRootParameters, _countof(staticSamplers), staticSamplers, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
         ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &signature, &error));
-        ThrowIfFailed(m_devices[Secondary]->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_blurRootSignature)));
+        ThrowIfFailed(m_d3dDevices[Secondary]->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_blurRootSignature)));
     }
 
     // Create the pipeline states, which includes compiling and loading shaders.
@@ -517,7 +517,7 @@ void D3D12HeterogeneousMultiadapter::LoadAssets()
         // Describe and create the graphics pipeline state objects (PSOs).
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
         psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
-        psoDesc.pRootSignature = m_rootSignature.Get();
+        psoDesc.pRootSignature = m_d3dRootSignature.Get();
         psoDesc.VS = CD3DX12_SHADER_BYTECODE(vertexShader.Get());
         psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShader.Get());
         psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
@@ -529,7 +529,7 @@ void D3D12HeterogeneousMultiadapter::LoadAssets()
         psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
         psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
         psoDesc.SampleDesc.Count = 1;
-        ThrowIfFailed(m_devices[Primary]->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState)));
+        ThrowIfFailed(m_d3dDevices[Primary]->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_d3dPipelineState)));
 
         psoDesc.InputLayout = { blurInputElementDescs, _countof(blurInputElementDescs) };
         psoDesc.pRootSignature = m_blurRootSignature.Get();
@@ -537,18 +537,18 @@ void D3D12HeterogeneousMultiadapter::LoadAssets()
         psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShaderBlurU.Get());
         psoDesc.DepthStencilState.DepthEnable = false;
         psoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
-        ThrowIfFailed(m_devices[Secondary]->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_blurPipelineStates[0])));
+        ThrowIfFailed(m_d3dDevices[Secondary]->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_blurPipelineStates[0])));
 
         psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShaderBlurV.Get());
-        ThrowIfFailed(m_devices[Secondary]->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_blurPipelineStates[1])));
+        ThrowIfFailed(m_d3dDevices[Secondary]->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_blurPipelineStates[1])));
     }
 
     // Create the command lists.
-    ThrowIfFailed(m_devices[Primary]->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_directCommandAllocators[Primary][m_frameIndex].Get(), m_pipelineState.Get(), IID_PPV_ARGS(&m_directCommandLists[Primary])));
-    ThrowIfFailed(m_devices[Primary]->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COPY, m_copyCommandAllocators[m_frameIndex].Get(), m_pipelineState.Get(), IID_PPV_ARGS(&m_copyCommandList)));
+    ThrowIfFailed(m_d3dDevices[Primary]->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_directCommandAllocators[Primary][m_frameIndex].Get(), m_d3dPipelineState.Get(), IID_PPV_ARGS(&m_directCommandLists[Primary])));
+    ThrowIfFailed(m_d3dDevices[Primary]->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COPY, m_copyCommandAllocators[m_frameIndex].Get(), m_d3dPipelineState.Get(), IID_PPV_ARGS(&m_copyCommandList)));
     ThrowIfFailed(m_copyCommandList->Close());
 
-    ThrowIfFailed(m_devices[Secondary]->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_directCommandAllocators[Secondary][m_frameIndex].Get(), m_blurPipelineStates[0].Get(), IID_PPV_ARGS(&m_directCommandLists[Secondary])));
+    ThrowIfFailed(m_d3dDevices[Secondary]->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_directCommandAllocators[Secondary][m_frameIndex].Get(), m_blurPipelineStates[0].Get(), IID_PPV_ARGS(&m_directCommandLists[Secondary])));
 
     // Note: ComPtr's are CPU objects but these resources need to stay in scope until
     // the command list that references them has finished executing on the GPU.
@@ -569,7 +569,7 @@ void D3D12HeterogeneousMultiadapter::LoadAssets()
 
         const UINT vertexBufferSize = sizeof(triangleVertices);
 
-        ThrowIfFailed(m_devices[Primary]->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevices[Primary]->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
@@ -577,7 +577,7 @@ void D3D12HeterogeneousMultiadapter::LoadAssets()
             nullptr,
             IID_PPV_ARGS(&m_vertexBuffer)));
 
-        ThrowIfFailed(m_devices[Primary]->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevices[Primary]->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
@@ -614,7 +614,7 @@ void D3D12HeterogeneousMultiadapter::LoadAssets()
 
         const UINT vertexBufferSize = sizeof(quadVertices);
 
-        ThrowIfFailed(m_devices[Secondary]->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevices[Secondary]->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
@@ -622,7 +622,7 @@ void D3D12HeterogeneousMultiadapter::LoadAssets()
             nullptr,
             IID_PPV_ARGS(&m_fullscreenQuadVertexBuffer)));
 
-        ThrowIfFailed(m_devices[Secondary]->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevices[Secondary]->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
@@ -655,24 +655,24 @@ void D3D12HeterogeneousMultiadapter::LoadAssets()
 
         const CD3DX12_CLEAR_VALUE clearValue(DXGI_FORMAT_D32_FLOAT, 1.0f, 0);
 
-        ThrowIfFailed(m_devices[Primary]->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevices[Primary]->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_D32_FLOAT, m_width, m_height, 1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
             D3D12_RESOURCE_STATE_DEPTH_WRITE,
             &clearValue,
-            IID_PPV_ARGS(&m_depthStencil)
+            IID_PPV_ARGS(&m_d3dDepthStencil)
             ));
 
-        m_devices[Primary]->CreateDepthStencilView(m_depthStencil.Get(), &depthStencilDesc, m_dsvHeap->GetCPUDescriptorHandleForHeapStart());
+        m_d3dDevices[Primary]->CreateDepthStencilView(m_d3dDepthStencil.Get(), &depthStencilDesc, m_dsvHeap->GetCPUDescriptorHandleForHeapStart());
     }
 
     // Create the constant buffers.
     {
         {
-            const UINT64 constantBufferSize = sizeof(SceneConstantBuffer) * MaxTriangleCount * FrameCount;
+            const UINT64 constantBufferSize = sizeof(SceneConstantBuffer) * MaxTriangleCount * m_RenderTargetCount;
 
-            ThrowIfFailed(m_devices[Primary]->CreateCommittedResource(
+            ThrowIfFailed(m_d3dDevices[Primary]->CreateCommittedResource(
                 &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
                 D3D12_HEAP_FLAG_NONE,
                 &CD3DX12_RESOURCE_DESC::Buffer(constantBufferSize),
@@ -693,13 +693,13 @@ void D3D12HeterogeneousMultiadapter::LoadAssets()
             // app closes. Keeping things mapped for the lifetime of the resource is okay.
             CD3DX12_RANGE readRange(0, 0);        // We do not intend to read from this resource on the CPU.
             ThrowIfFailed(m_constantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&m_pCbvDataBegin)));
-            memcpy(m_pCbvDataBegin, &m_constantBufferData[0], constantBufferSize / FrameCount);
+            memcpy(m_pCbvDataBegin, &m_constantBufferData[0], constantBufferSize / m_RenderTargetCount);
         }
 
         {
-            const UINT64 workloadConstantBufferSize = sizeof(WorkloadConstantBufferData) * FrameCount;
+            const UINT64 workloadConstantBufferSize = sizeof(WorkloadConstantBufferData) * m_RenderTargetCount;
 
-            ThrowIfFailed(m_devices[Primary]->CreateCommittedResource(
+            ThrowIfFailed(m_d3dDevices[Primary]->CreateCommittedResource(
                 &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
                 D3D12_HEAP_FLAG_NONE,
                 &CD3DX12_RESOURCE_DESC::Buffer(workloadConstantBufferSize),
@@ -714,13 +714,13 @@ void D3D12HeterogeneousMultiadapter::LoadAssets()
             // app closes. Keeping things mapped for the lifetime of the resource is okay.
             CD3DX12_RANGE readRange(0, 0);        // We do not intend to read from this resource on the CPU.
             ThrowIfFailed(m_workloadConstantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&m_pWorkloadCbvDataBegin)));
-            memcpy(m_pWorkloadCbvDataBegin, &m_workloadConstantBufferData, workloadConstantBufferSize / FrameCount);
+            memcpy(m_pWorkloadCbvDataBegin, &m_workloadConstantBufferData, workloadConstantBufferSize / m_RenderTargetCount);
         }
 
         {
-            const UINT64 blurWorkloadConstantBufferSize = sizeof(WorkloadConstantBufferData) * FrameCount;
+            const UINT64 blurWorkloadConstantBufferSize = sizeof(WorkloadConstantBufferData) * m_RenderTargetCount;
 
-            ThrowIfFailed(m_devices[Secondary]->CreateCommittedResource(
+            ThrowIfFailed(m_d3dDevices[Secondary]->CreateCommittedResource(
                 &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
                 D3D12_HEAP_FLAG_NONE,
                 &CD3DX12_RESOURCE_DESC::Buffer(blurWorkloadConstantBufferSize),
@@ -735,11 +735,11 @@ void D3D12HeterogeneousMultiadapter::LoadAssets()
             // app closes. Keeping things mapped for the lifetime of the resource is okay.
             CD3DX12_RANGE readRange(0, 0);        // We do not intend to read from this resource on the CPU.
             ThrowIfFailed(m_blurWorkloadConstantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&m_pBlurWorkloadCbvDataBegin)));
-            memcpy(m_pBlurWorkloadCbvDataBegin, &m_blurWorkloadConstantBufferData, blurWorkloadConstantBufferSize / FrameCount);
+            memcpy(m_pBlurWorkloadCbvDataBegin, &m_blurWorkloadConstantBufferData, blurWorkloadConstantBufferSize / m_RenderTargetCount);
         }
 
         {
-            ThrowIfFailed(m_devices[Secondary]->CreateCommittedResource(
+            ThrowIfFailed(m_d3dDevices[Secondary]->CreateCommittedResource(
                 &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
                 D3D12_HEAP_FLAG_NONE,
                 &CD3DX12_RESOURCE_DESC::Buffer(sizeof(BlurConstantBufferData)),
@@ -777,27 +777,27 @@ void D3D12HeterogeneousMultiadapter::LoadAssets()
     // We use regular fences for things that don't need to be cross adapter because they don't need the additional overhead associated with being cross-adapter.
     {
         // Fence used to control CPU pacing.
-        ThrowIfFailed(m_devices[Secondary]->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_frameFence)));
+        ThrowIfFailed(m_d3dDevices[Secondary]->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_frameFence)));
 
         // Fence used by the primary adapter to signal its copy queue that it has completed rendering.
         // When this is signaled, the primary adapter's copy queue can begin copying to the cross-adapter shared resource.
-        ThrowIfFailed(m_devices[Primary]->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_renderFence)));
+        ThrowIfFailed(m_d3dDevices[Primary]->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_renderFence)));
 
         // Cross-adapter shared fence used by both adapters.
         // Used by the primary adapter to signal the secondary adapter that it has completed copying to the cross-adapter shared resource.
         // When this is signaled, the secondary adapter can begin its work.
-        ThrowIfFailed(m_devices[Primary]->CreateFence(0, D3D12_FENCE_FLAG_SHARED | D3D12_FENCE_FLAG_SHARED_CROSS_ADAPTER, IID_PPV_ARGS(&m_crossAdapterFences[Primary]))); 
+        ThrowIfFailed(m_d3dDevices[Primary]->CreateFence(0, D3D12_FENCE_FLAG_SHARED | D3D12_FENCE_FLAG_SHARED_CROSS_ADAPTER, IID_PPV_ARGS(&m_crossAdapterFences[Primary]))); 
 
         // For now, require GENERIC_ALL access.
         HANDLE fenceHandle = nullptr;
-        ThrowIfFailed(m_devices[Primary]->CreateSharedHandle(
+        ThrowIfFailed(m_d3dDevices[Primary]->CreateSharedHandle(
             m_crossAdapterFences[Primary].Get(),
             nullptr,
             GENERIC_ALL,
             nullptr,
             &fenceHandle));
 
-        HRESULT openSharedHandleResult = m_devices[Secondary]->OpenSharedHandle(fenceHandle, IID_PPV_ARGS(&m_crossAdapterFences[Secondary]));
+        HRESULT openSharedHandleResult = m_d3dDevices[Secondary]->OpenSharedHandle(fenceHandle, IID_PPV_ARGS(&m_crossAdapterFences[Secondary]));
 
         // We can close the handle after opening the cross-adapter shared fence.
         CloseHandle(fenceHandle);
@@ -864,7 +864,7 @@ void D3D12HeterogeneousMultiadapter::OnUpdate()
         }
 
         // Move to the next index.
-        m_currentTimesIndex = (m_currentTimesIndex + 1) % MovingAverageFrameCount;
+        m_currentTimesIndex = (m_currentTimesIndex + 1) % MovingAveragem_RenderTargetCount;
     }
 
     // Dynamically change the workload on the primary adapter. This is a VERY naive implementation.
@@ -873,19 +873,19 @@ void D3D12HeterogeneousMultiadapter::OnUpdate()
     {
         static UINT64 framesSinceLastUpdate = 0;
         framesSinceLastUpdate++;
-        if (framesSinceLastUpdate > MovingAverageFrameCount)
+        if (framesSinceLastUpdate > MovingAveragem_RenderTargetCount)
         {
             // Calculate the average draw and blur times for last few frames.
             m_drawTimeMovingAverage = 0;
             m_blurTimeMovingAverage = 0;
-            for (UINT i = 0; i < MovingAverageFrameCount; i++)
+            for (UINT i = 0; i < MovingAveragem_RenderTargetCount; i++)
             {
                 m_drawTimeMovingAverage += m_drawTimes[i];
                 m_blurTimeMovingAverage += m_blurTimes[i];
             }
 
-            m_drawTimeMovingAverage /= MovingAverageFrameCount;
-            m_blurTimeMovingAverage /= MovingAverageFrameCount;
+            m_drawTimeMovingAverage /= MovingAveragem_RenderTargetCount;
+            m_blurTimeMovingAverage /= MovingAveragem_RenderTargetCount;
             framesSinceLastUpdate = 0;
 
             // Adjust the shader blur time to be at least 20ms/frame.
@@ -1008,7 +1008,7 @@ void D3D12HeterogeneousMultiadapter::OnRender()
         }
 
         // Present the frame.
-        ThrowIfFailed(m_swapChain->Present(1, 0));
+        ThrowIfFailed(m_d3dSwapChain->Present(1, 0));
 
         // Signal the frame is complete.
         ThrowIfFailed(m_directCommandQueues[Secondary]->Signal(m_frameFence.Get(), m_currentPresentFenceValue));
@@ -1034,12 +1034,12 @@ void D3D12HeterogeneousMultiadapter::OnRender()
 void D3D12HeterogeneousMultiadapter::ReleaseD3DResources()
 {
     m_frameFence.Reset();
-    m_swapChain.Reset();
-    ResetComPtrArray(&m_devices);
+    m_d3dSwapChain.Reset();
+    ResetComPtrArray(&m_d3dDevices);
     ResetComPtrArray(&m_directCommandQueues);
     for (UINT i = 0; i < GraphicsAdaptersCount; i++)
     {
-        ResetComPtrArray(&m_renderTargets[i]);
+        ResetComPtrArray(&m_d3dRenderTarget[i]);
     }
 }
 
@@ -1088,22 +1088,22 @@ void D3D12HeterogeneousMultiadapter::PopulateCommandLists()
         // However, when ExecuteCommandList() is called on a particular command 
         // list, that command list can then be reset at any time and must be before 
         // re-recording.
-        ThrowIfFailed(m_directCommandLists[adapter]->Reset(m_directCommandAllocators[adapter][m_frameIndex].Get(), m_pipelineState.Get()));
+        ThrowIfFailed(m_directCommandLists[adapter]->Reset(m_directCommandAllocators[adapter][m_frameIndex].Get(), m_d3dPipelineState.Get()));
 
         // Get a timestamp at the start of the command list.
         const UINT timestampHeapIndex = 2 * m_frameIndex;
         m_directCommandLists[adapter]->EndQuery(m_timestampQueryHeaps[adapter].Get(), D3D12_QUERY_TYPE_TIMESTAMP, timestampHeapIndex);
 
         // Set necessary state.
-        m_directCommandLists[adapter]->SetGraphicsRootSignature(m_rootSignature.Get());
+        m_directCommandLists[adapter]->SetGraphicsRootSignature(m_d3dRootSignature.Get());
 
         m_directCommandLists[adapter]->RSSetViewports(1, &m_viewport);
         m_directCommandLists[adapter]->RSSetScissorRects(1, &m_scissorRect);
 
         // Indicate that the render target will be used as a render target.
-        m_directCommandLists[adapter]->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[adapter][m_frameIndex].Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_RENDER_TARGET));
+        m_directCommandLists[adapter]->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_d3dRenderTarget[adapter][m_frameIndex].Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_RENDER_TARGET));
 
-        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeaps[adapter]->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSizes[adapter]);
+        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_d3dDecsHeaps[adapter]->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_d3dDescriptorSizes[adapter]);
         CD3DX12_CPU_DESCRIPTOR_HANDLE dsvHandle(m_dsvHeap->GetCPUDescriptorHandleForHeapStart());
         m_directCommandLists[adapter]->OMSetRenderTargets(1, &rtvHandle, false, &dsvHandle);
 
@@ -1125,7 +1125,7 @@ void D3D12HeterogeneousMultiadapter::PopulateCommandLists()
         }
 
         // Indicate that the render target will now be used to copy.
-        m_directCommandLists[adapter]->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[adapter][m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON));
+        m_directCommandLists[adapter]->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_d3dRenderTarget[adapter][m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON));
 
         // Get a timestamp at the end of the command list and resolve the query data.
         m_directCommandLists[adapter]->EndQuery(m_timestampQueryHeaps[adapter].Get(), D3D12_QUERY_TYPE_TIMESTAMP, timestampHeapIndex + 1);
@@ -1149,7 +1149,7 @@ void D3D12HeterogeneousMultiadapter::PopulateCommandLists()
         {
             // If cross-adapter row-major textures are supported by the adapter,
             // simply copy the texture into the cross-adapter texture.
-            m_copyCommandList->CopyResource(m_crossAdapterResources[adapter][m_frameIndex].Get(), m_renderTargets[adapter][m_frameIndex].Get());
+            m_copyCommandList->CopyResource(m_crossAdapterResources[adapter][m_frameIndex].Get(), m_d3dRenderTarget[adapter][m_frameIndex].Get());
         }
         else
         {
@@ -1159,13 +1159,13 @@ void D3D12HeterogeneousMultiadapter::PopulateCommandLists()
 
             // Copy the intermediate render target into the shared buffer using the
             // memory layout prescribed by the render target.
-            D3D12_RESOURCE_DESC renderTargetDesc = m_renderTargets[adapter][m_frameIndex]->GetDesc();
+            D3D12_RESOURCE_DESC renderTargetDesc = m_d3dRenderTarget[adapter][m_frameIndex]->GetDesc();
             D3D12_PLACED_SUBRESOURCE_FOOTPRINT renderTargetLayout;
 
-            m_devices[adapter]->GetCopyableFootprints(&renderTargetDesc, 0, 1, 0, &renderTargetLayout, nullptr, nullptr, nullptr);
+            m_d3dDevices[adapter]->GetCopyableFootprints(&renderTargetDesc, 0, 1, 0, &renderTargetLayout, nullptr, nullptr, nullptr);
 
             CD3DX12_TEXTURE_COPY_LOCATION dest(m_crossAdapterResources[adapter][m_frameIndex].Get(), renderTargetLayout);
-            CD3DX12_TEXTURE_COPY_LOCATION src(m_renderTargets[adapter][m_frameIndex].Get(), 0);
+            CD3DX12_TEXTURE_COPY_LOCATION src(m_d3dRenderTarget[adapter][m_frameIndex].Get(), 0);
             CD3DX12_BOX box(0, 0, m_width, m_height);
 
             m_copyCommandList->CopyTextureRegion(&dest, 0, 0, 0, &src, &box);
@@ -1203,7 +1203,7 @@ void D3D12HeterogeneousMultiadapter::PopulateCommandLists()
             D3D12_RESOURCE_DESC secondaryAdapterTexture = m_secondaryAdapterTextures[m_frameIndex]->GetDesc();
             D3D12_PLACED_SUBRESOURCE_FOOTPRINT textureLayout;
 
-            m_devices[adapter]->GetCopyableFootprints(&secondaryAdapterTexture, 0, 1, 0, &textureLayout, nullptr, nullptr, nullptr);
+            m_d3dDevices[adapter]->GetCopyableFootprints(&secondaryAdapterTexture, 0, 1, 0, &textureLayout, nullptr, nullptr, nullptr);
 
             CD3DX12_TEXTURE_COPY_LOCATION dest(m_secondaryAdapterTextures[m_frameIndex].Get(), 0);
             CD3DX12_TEXTURE_COPY_LOCATION src(m_crossAdapterResources[adapter][m_frameIndex].Get(), textureLayout);
@@ -1243,7 +1243,7 @@ void D3D12HeterogeneousMultiadapter::PopulateCommandLists()
             CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvUavHeap->GetGPUDescriptorHandleForHeapStart(), m_frameIndex, m_srvDescriptorSizes[adapter]);
             m_directCommandLists[adapter]->SetGraphicsRootDescriptorTable(1, srvHandle);
 
-            CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeaps[adapter]->GetCPUDescriptorHandleForHeapStart(), FrameCount, m_rtvDescriptorSizes[adapter]);
+            CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_d3dDecsHeaps[adapter]->GetCPUDescriptorHandleForHeapStart(), m_RenderTargetCount, m_d3dDescriptorSizes[adapter]);
             m_directCommandLists[adapter]->OMSetRenderTargets(1, &rtvHandle, false, nullptr);
 
             m_directCommandLists[adapter]->DrawInstanced(4, 1, 0, 0);
@@ -1256,23 +1256,23 @@ void D3D12HeterogeneousMultiadapter::PopulateCommandLists()
             // Indicate that the back buffer will be used as a render target and the
             // intermediate render target will be used as a SRV.
             D3D12_RESOURCE_BARRIER barriers[] = {
-                CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[adapter][m_frameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET),
+                CD3DX12_RESOURCE_BARRIER::Transition(m_d3dRenderTarget[adapter][m_frameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET),
                 CD3DX12_RESOURCE_BARRIER::Transition(m_intermediateBlurRenderTarget.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
             };
 
             m_directCommandLists[adapter]->ResourceBarrier(_countof(barriers), barriers);
 
-            CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvUavHeap->GetGPUDescriptorHandleForHeapStart(), FrameCount, m_srvDescriptorSizes[adapter]);
+            CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvUavHeap->GetGPUDescriptorHandleForHeapStart(), m_RenderTargetCount, m_srvDescriptorSizes[adapter]);
             m_directCommandLists[adapter]->SetGraphicsRootDescriptorTable(1, srvHandle);
 
-            CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeaps[adapter]->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSizes[adapter]);
+            CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_d3dDecsHeaps[adapter]->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_d3dDescriptorSizes[adapter]);
             m_directCommandLists[adapter]->OMSetRenderTargets(1, &rtvHandle, false, nullptr);
 
             m_directCommandLists[adapter]->DrawInstanced(4, 1, 0, 0);
         }
 
         // Indicate that the back buffer will now be used to present.
-        m_directCommandLists[adapter]->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[adapter][m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
+        m_directCommandLists[adapter]->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_d3dRenderTarget[adapter][m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
 
         // Get a timestamp at the end of the command list and resolve the query data.
         m_directCommandLists[adapter]->EndQuery(m_timestampQueryHeaps[adapter].Get(), D3D12_QUERY_TYPE_TIMESTAMP, timestampHeapIndex + 1);
@@ -1310,7 +1310,7 @@ void D3D12HeterogeneousMultiadapter::WaitForGpu(GraphicsAdapter adapter)
 void D3D12HeterogeneousMultiadapter::MoveToNextFrame()
 {
     // Get the current the frame index.
-    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+    m_frameIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
 
     // If the next frame is not ready to be rendered yet, wait until it is ready.
     const UINT64 completedFenceValue = m_frameFence->GetCompletedValue();

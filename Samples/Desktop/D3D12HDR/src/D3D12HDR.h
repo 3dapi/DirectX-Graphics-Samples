@@ -30,8 +30,8 @@ class D3D12HDR : public DXSample
 public:
     D3D12HDR(UINT width, UINT height, std::wstring name);
 
-    inline ID3D12Device* GetDevice() { return m_device.Get(); }
-    inline ID3D12CommandQueue* GetCommandQueue() { return m_commandQueue.Get(); }
+    inline ID3D12Device* GetDevice() { return m_d3dDevice.Get(); }
+    inline ID3D12CommandQueue* GetCommandQueue() { return m_d3dCommandQueue.Get(); }
     inline ID3D12Resource* GetUIRenderTarget() { return m_UIRenderTarget.Get(); }
     inline DXGI_FORMAT GetBackBufferFormat() { return m_swapChainFormats[m_currentSwapChainBitDepth]; }
     inline std::wstring GetDisplayCurve()
@@ -54,7 +54,7 @@ protected:
     virtual void OnDestroy();
     virtual void OnKeyDown(UINT8 key);
     virtual void OnDisplayChanged();
-    virtual IDXGISwapChain* GetSwapchain() { return m_swapChain.Get(); }
+    virtual IDXGISwapChain* GetSwapchain() { return m_d3dSwapChain.Get(); }
 
 private:
     static const float ClearColor[4];
@@ -128,14 +128,14 @@ private:
     CD3DX12_VIEWPORT m_viewport;
     CD3DX12_RECT m_scissorRect;
     ComPtr<IDXGIFactory4> m_dxgiFactory;
-    ComPtr<IDXGISwapChain4> m_swapChain;
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
+    ComPtr<IDXGISwapChain4> m_d3dSwapChain;
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[FrameCount];
     ComPtr<ID3D12Resource> m_intermediateRenderTarget;
     ComPtr<ID3D12Resource> m_UIRenderTarget;
     ComPtr<ID3D12CommandAllocator> m_commandAllocators[FrameCount];
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
-    ComPtr<ID3D12RootSignature> m_rootSignature;
+    ComPtr<ID3D12CommandQueue> m_d3dCommandQueue;
+    ComPtr<ID3D12RootSignature> m_d3dRootSignature;
     ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
     ComPtr<ID3D12DescriptorHeap> m_srvHeap;
     UINT m_rtvDescriptorSize;
@@ -168,7 +168,7 @@ private:
     float m_referenceWhiteNits = 80.0f;    // The reference brightness level of the display.
 
     // Synchronization objects.
-    UINT m_frameIndex;
+    UINT m_d3dCurrentFrameIndex;
     HANDLE m_fenceEvent;
     ComPtr<ID3D12Fence> m_fence;
     UINT64 m_fenceValues[FrameCount];

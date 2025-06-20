@@ -40,9 +40,9 @@ public:
     void UpdateConstantBuffer(UINT8* data, UINT dataSize, UINT64 frameId);
     void ResizeSwapChain();
 
-    inline ID3D12Device* GetDevice()                             { return m_device.Get(); }
+    inline ID3D12Device* GetDevice()                             { return m_d3dDevice.Get(); }
     inline ID3D12CommandQueue* GetCommandQueue(UINT nodeIndex)   { return m_queues[nodeIndex].Get(); }
-    inline IDXGISwapChain3* GetSwapChain()                       { return m_swapChain.Get(); }
+    inline IDXGISwapChain3* GetSwapChain()                       { return m_d3dSwapChain.Get(); }
     inline ID3D12RootSignature* GetSceneRootSignature()          { return m_sceneRootSignature.Get(); }
     inline ID3D12PipelineState* GetScenePipelineState()          { return m_scenePipelineState.Get(); }
     inline ID3D12RootSignature* GetPostRootSignature()           { return m_postRootSignature.Get(); }
@@ -56,8 +56,8 @@ public:
 private:
     // Objects that are visible across all GPU nodes.
     ComPtr<IDXGIFactory4> m_factory;
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<IDXGISwapChain3> m_swapChain;
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
     ComPtr<ID3D12RootSignature> m_sceneRootSignature;
     ComPtr<ID3D12PipelineState> m_scenePipelineState;
     ComPtr<ID3D12RootSignature> m_postRootSignature;

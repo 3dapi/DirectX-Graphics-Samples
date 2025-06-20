@@ -17,7 +17,7 @@ const float D3D12PipelineStateCache::IntermediateClearColor[4] = { 0.0f, 0.2f, 0
 D3D12PipelineStateCache::D3D12PipelineStateCache(UINT width, UINT height, std::wstring name) :
     DXSample(width, height, name),
     m_psoLibrary(FrameCount, RootParameterUberShaderCB),
-    m_frameIndex(0),
+    m_d3dCurrentFrameIndex(0),
     m_swapChainEvent(0),
     m_drawIndex(0),
     m_maxDrawsPerFrame(256),
@@ -76,7 +76,7 @@ void D3D12PipelineStateCache::LoadPipeline()
         ThrowIfFailed(D3D12CreateDevice(
             warpAdapter.Get(),
             D3D_FEATURE_LEVEL_11_0,
-            IID_PPV_ARGS(&m_device)
+            IID_PPV_ARGS(&m_d3dDevice)
             ));
     }
     else
@@ -87,7 +87,7 @@ void D3D12PipelineStateCache::LoadPipeline()
         ThrowIfFailed(D3D12CreateDevice(
             hardwareAdapter.Get(),
             D3D_FEATURE_LEVEL_11_0,
-            IID_PPV_ARGS(&m_device)
+            IID_PPV_ARGS(&m_d3dDevice)
             ));
     }
 
@@ -96,8 +96,8 @@ void D3D12PipelineStateCache::LoadPipeline()
     queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 
-    ThrowIfFailed(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_commandQueue)));
-    NAME_D3D12_OBJECT(m_commandQueue);
+    ThrowIfFailed(m_d3dDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_d3dCommandQueue)));
+    NAME_D3D12_OBJECT(m_d3dCommandQueue);
 
     // Describe and create the swap chain.
     DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
@@ -112,7 +112,7 @@ void D3D12PipelineStateCache::LoadPipeline()
 
     ComPtr<IDXGISwapChain1> swapChain;
     ThrowIfFailed(factory->CreateSwapChainForHwnd(
-        m_commandQueue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
+        m_d3dCommandQueue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
         Win32Application::GetHwnd(),
         &swapChainDesc,
         nullptr,
@@ -123,9 +123,9 @@ void D3D12PipelineStateCache::LoadPipeline()
     // This sample does not support fullscreen transitions.
     ThrowIfFailed(factory->MakeWindowAssociation(Win32Application::GetHwnd(), DXGI_MWA_NO_ALT_ENTER));
 
-    ThrowIfFailed(swapChain.As(&m_swapChain));
-    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
-    m_swapChainEvent = m_swapChain->GetFrameLatencyWaitableObject();
+    ThrowIfFailed(swapChain.As(&m_d3dSwapChain));
+    m_d3dCurrentFrameIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
+    m_swapChainEvent = m_d3dSwapChain->GetFrameLatencyWaitableObject();
 
     // Create descriptor heaps.
     {
@@ -134,18 +134,18 @@ void D3D12PipelineStateCache::LoadPipeline()
         rtvHeapDesc.NumDescriptors = FrameCount + 1;    // A descriptor for each frame + 1 intermediate render target.
         rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
         rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)));
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)));
 
         // Describe and create a shader resource view (SRV) descriptor heap.
         D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
         srvHeapDesc.NumDescriptors = 1;
         srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_srvHeap)));
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_srvHeap)));
         NAME_D3D12_OBJECT(m_srvHeap);
 
-        m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-        m_srvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        m_rtvDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        m_srvDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     }
 
     // Create frame resources.
@@ -155,23 +155,23 @@ void D3D12PipelineStateCache::LoadPipeline()
         // Create RTVs and a command allocator for each frame.
         for (UINT n = 0; n < FrameCount; n++)
         {
-            ThrowIfFailed(m_swapChain->GetBuffer(n, IID_PPV_ARGS(&m_renderTargets[n])));
-            m_device->CreateRenderTargetView(m_renderTargets[n].Get(), nullptr, rtvHandle);
+            ThrowIfFailed(m_d3dSwapChain->GetBuffer(n, IID_PPV_ARGS(&m_d3dRenderTarget[n])));
+            m_d3dDevice->CreateRenderTargetView(m_d3dRenderTarget[n].Get(), nullptr, rtvHandle);
             rtvHandle.Offset(1, m_rtvDescriptorSize);
 
-            NAME_D3D12_OBJECT_INDEXED(m_renderTargets, n);
+            NAME_D3D12_OBJECT_INDEXED(m_d3dRenderTarget, n);
 
-            ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocators[n])));
+            ThrowIfFailed(m_d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocators[n])));
         }
 
-        D3D12_RESOURCE_DESC renderTargetDesc = m_renderTargets[0]->GetDesc();
+        D3D12_RESOURCE_DESC renderTargetDesc = m_d3dRenderTarget[0]->GetDesc();
 
         D3D12_CLEAR_VALUE clearValue = {};
         memcpy(clearValue.Color, IntermediateClearColor, sizeof(IntermediateClearColor));
         clearValue.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 
         // Create an intermediate render target that is the same dimensions as the swap chain.
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
             &renderTargetDesc,
@@ -181,7 +181,7 @@ void D3D12PipelineStateCache::LoadPipeline()
 
         NAME_D3D12_OBJECT(m_intermediateRenderTarget);
 
-        m_device->CreateRenderTargetView(m_intermediateRenderTarget.Get(), nullptr, rtvHandle);
+        m_d3dDevice->CreateRenderTargetView(m_intermediateRenderTarget.Get(), nullptr, rtvHandle);
         rtvHandle.Offset(1, m_rtvDescriptorSize);
 
         // Create a SRV of the intermediate render target.
@@ -192,7 +192,7 @@ void D3D12PipelineStateCache::LoadPipeline()
         srvDesc.Texture2D.MipLevels = 1;
 
         CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_srvHeap->GetCPUDescriptorHandleForHeapStart());
-        m_device->CreateShaderResourceView(m_intermediateRenderTarget.Get(), &srvDesc, srvHandle);
+        m_d3dDevice->CreateShaderResourceView(m_intermediateRenderTarget.Get(), &srvDesc, srvHandle);
     }
 }
 
@@ -205,7 +205,7 @@ void D3D12PipelineStateCache::LoadAssets()
         // This is the highest version the sample supports. If CheckFeatureSupport succeeds, the HighestVersion returned will not be greater than this.
         featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
 
-        if (FAILED(m_device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
+        if (FAILED(m_d3dDevice->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
         {
             featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
         }
@@ -242,12 +242,12 @@ void D3D12PipelineStateCache::LoadAssets()
         ComPtr<ID3DBlob> signature;
         ComPtr<ID3DBlob> error;
         ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &signature, &error));
-        ThrowIfFailed(m_device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature)));
-        NAME_D3D12_OBJECT(m_rootSignature);
+        ThrowIfFailed(m_d3dDevice->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_d3dRootSignature)));
+        NAME_D3D12_OBJECT(m_d3dRootSignature);
     }
 
     // Create the command list.
-    ThrowIfFailed(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[m_frameIndex].Get(), nullptr, IID_PPV_ARGS(&m_commandList)));
+    ThrowIfFailed(m_d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[m_d3dCurrentFrameIndex].Get(), nullptr, IID_PPV_ARGS(&m_commandList)));
     NAME_D3D12_OBJECT(m_commandList);
 
     // Note: ComPtr's are CPU objects but this resource needs to stay in scope until
@@ -301,7 +301,7 @@ void D3D12PipelineStateCache::LoadAssets()
 
         const UINT vertexIndexBufferSize = sizeof(cubeIndices) + sizeof(cubeVertices) + sizeof(quadVertices);
 
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(vertexIndexBufferSize),
@@ -309,7 +309,7 @@ void D3D12PipelineStateCache::LoadAssets()
             nullptr,
             IID_PPV_ARGS(&m_vertexIndexBuffer)));
 
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(vertexIndexBufferSize),
@@ -350,18 +350,18 @@ void D3D12PipelineStateCache::LoadAssets()
     }
 
     // Create the constant buffer.
-    m_dynamicCB.Init(m_device.Get());
+    m_dynamicCB.Init(m_d3dDevice.Get());
 
     // Close the command list and execute it to begin the vertex/index buffer copy
     // into the default heap.
     ThrowIfFailed(m_commandList->Close());
     ID3D12CommandList* ppCommandLists[] = { m_commandList.Get() };
-    m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+    m_d3dCommandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 
     // Create synchronization objects and wait until assets have been uploaded to the GPU.
     {
-        ThrowIfFailed(m_device->CreateFence(m_fenceValues[m_frameIndex], D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
-        m_fenceValues[m_frameIndex]++;
+        ThrowIfFailed(m_d3dDevice->CreateFence(m_fenceValues[m_d3dCurrentFrameIndex], D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
+        m_fenceValues[m_d3dCurrentFrameIndex]++;
 
         // Create an event handle to use for frame synchronization.
         m_fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
@@ -376,7 +376,7 @@ void D3D12PipelineStateCache::LoadAssets()
         WaitForGpu();
     }
 
-    m_psoLibrary.Build(m_device.Get(), m_rootSignature.Get());
+    m_psoLibrary.Build(m_d3dDevice.Get(), m_d3dRootSignature.Get());
     UpdateWindowTextPso();
 }
 
@@ -395,19 +395,19 @@ void D3D12PipelineStateCache::OnRender()
 {
     try
     {
-        PIXBeginEvent(m_commandQueue.Get(), 0, L"Render");
+        PIXBeginEvent(m_d3dCommandQueue.Get(), 0, L"Render");
 
         // Record all the commands we need to render the scene into the command list.
         PopulateCommandList();
 
         // Execute the command list.
         ID3D12CommandList* ppCommandLists[] = { m_commandList.Get() };
-        m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+        m_d3dCommandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 
-        PIXEndEvent(m_commandQueue.Get());
+        PIXEndEvent(m_d3dCommandQueue.Get());
 
         // Present the frame.
-        ThrowIfFailed(m_swapChain->Present(1, 0));
+        ThrowIfFailed(m_d3dSwapChain->Present(1, 0));
 
         m_drawIndex = 0;
         m_psoLibrary.EndFrame();
@@ -431,10 +431,10 @@ void D3D12PipelineStateCache::OnRender()
 void D3D12PipelineStateCache::ReleaseD3DResources()
 {
     m_fence.Reset();
-    ResetComPtrArray(&m_renderTargets);
-    m_commandQueue.Reset();
-    m_swapChain.Reset();
-    m_device.Reset();
+    ResetComPtrArray(&m_d3dRenderTarget);
+    m_d3dCommandQueue.Reset();
+    m_d3dSwapChain.Reset();
+    m_d3dDevice.Reset();
 }
 
 // Tears down D3D resources and reinitializes them.
@@ -477,7 +477,7 @@ void D3D12PipelineStateCache::OnKeyUp(UINT8 key)
     case 'C':
         WaitForGpu();
         m_psoLibrary.ClearPSOCache();
-        m_psoLibrary.Build(m_device.Get(), m_rootSignature.Get());
+        m_psoLibrary.Build(m_d3dDevice.Get(), m_d3dRootSignature.Get());
         break;
 
     case 'U':
@@ -541,15 +541,15 @@ void D3D12PipelineStateCache::PopulateCommandList()
     // Command list allocators can only be reset when the associated
     // command lists have finished execution on the GPU; apps should use
     // fences to determine GPU execution progress.
-    ThrowIfFailed(m_commandAllocators[m_frameIndex]->Reset());
+    ThrowIfFailed(m_commandAllocators[m_d3dCurrentFrameIndex]->Reset());
 
     // However, when ExecuteCommandList() is called on a particular command
     // list, that command list can then be reset at any time and must be before
     // re-recording.
-    ThrowIfFailed(m_commandList->Reset(m_commandAllocators[m_frameIndex].Get(), nullptr));
+    ThrowIfFailed(m_commandList->Reset(m_commandAllocators[m_d3dCurrentFrameIndex].Get(), nullptr));
 
     // Set necessary state.
-    m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
+    m_commandList->SetGraphicsRootSignature(m_d3dRootSignature.Get());
 
     ID3D12DescriptorHeap* ppHeaps[] = { m_srvHeap.Get() };
     m_commandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
@@ -558,7 +558,7 @@ void D3D12PipelineStateCache::PopulateCommandList()
     m_commandList->RSSetViewports(1, &m_viewport);
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
 
-    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_d3dCurrentFrameIndex, m_rtvDescriptorSize);
     CD3DX12_CPU_DESCRIPTOR_HANDLE intermediateRtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), FrameCount, m_rtvDescriptorSize);
     CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(m_srvHeap->GetGPUDescriptorHandleForHeapStart());
 
@@ -571,16 +571,16 @@ void D3D12PipelineStateCache::PopulateCommandList()
     PIXBeginEvent(m_commandList.Get(), 0, L"Draw cube");
     {
         static float rot = 0.0f;
-        DrawConstantBuffer* drawCB = (DrawConstantBuffer*)m_dynamicCB.GetMappedMemory(m_drawIndex, m_frameIndex);
+        DrawConstantBuffer* drawCB = (DrawConstantBuffer*)m_dynamicCB.GetMappedMemory(m_drawIndex, m_d3dCurrentFrameIndex);
         drawCB->worldViewProjection = XMMatrixTranspose(XMMatrixRotationY(rot) * XMMatrixRotationX(-rot) * m_camera.GetViewMatrix() * m_projectionMatrix);
 
         rot += 0.01f;
 
         m_commandList->IASetVertexBuffers(0, 1, &m_cubeVbv);
         m_commandList->IASetIndexBuffer(&m_cubeIbv);
-        m_psoLibrary.SetPipelineState(m_device.Get(), m_rootSignature.Get(), m_commandList.Get(), BaseNormal3DRender, m_frameIndex);
+        m_psoLibrary.SetPipelineState(m_d3dDevice.Get(), m_d3dRootSignature.Get(), m_commandList.Get(), BaseNormal3DRender, m_d3dCurrentFrameIndex);
 
-        m_commandList->SetGraphicsRootConstantBufferView(RootParameterCB, m_dynamicCB.GetGpuVirtualAddress(m_drawIndex, m_frameIndex));
+        m_commandList->SetGraphicsRootConstantBufferView(RootParameterCB, m_dynamicCB.GetGpuVirtualAddress(m_drawIndex, m_d3dCurrentFrameIndex));
         m_commandList->DrawIndexedInstanced(36, 1, 0, 0, 0);
         m_drawIndex++;
     }
@@ -593,7 +593,7 @@ void D3D12PipelineStateCache::PopulateCommandList()
     // Indicate that the back buffer will be used as a render target and the
     // intermediate render target will be used as a SRV.
     D3D12_RESOURCE_BARRIER barriers[] = {
-        CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET),
+        CD3DX12_RESOURCE_BARRIER::Transition(m_d3dRenderTarget[m_d3dCurrentFrameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET),
         CD3DX12_RESOURCE_BARRIER::Transition(m_intermediateRenderTarget.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
     };
 
@@ -624,7 +624,7 @@ void D3D12PipelineStateCache::PopulateCommandList()
 
                 PIXBeginEvent(m_commandList.Get(), 0, g_cEffectNames[i]);
                 m_commandList->RSSetViewports(1, &viewport);
-                m_psoLibrary.SetPipelineState(m_device.Get(), m_rootSignature.Get(), m_commandList.Get(), static_cast<EffectPipelineType>(i), m_frameIndex);
+                m_psoLibrary.SetPipelineState(m_d3dDevice.Get(), m_d3dRootSignature.Get(), m_commandList.Get(), static_cast<EffectPipelineType>(i), m_d3dCurrentFrameIndex);
                 m_commandList->DrawInstanced(4, 1, 0, 0);
                 PIXEndEvent(m_commandList.Get());
             }
@@ -691,33 +691,33 @@ void D3D12PipelineStateCache::UpdateWindowTextPso()
 void D3D12PipelineStateCache::WaitForGpu()
 {
     // Schedule a Signal command in the queue.
-    ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), m_fenceValues[m_frameIndex]));
+    ThrowIfFailed(m_d3dCommandQueue->Signal(m_fence.Get(), m_fenceValues[m_d3dCurrentFrameIndex]));
 
     // Wait until the fence has been processed.
-    ThrowIfFailed(m_fence->SetEventOnCompletion(m_fenceValues[m_frameIndex], m_fenceEvent));
+    ThrowIfFailed(m_fence->SetEventOnCompletion(m_fenceValues[m_d3dCurrentFrameIndex], m_fenceEvent));
     WaitForSingleObjectEx(m_fenceEvent, INFINITE, FALSE);
 
     // Increment the fence value for the current frame.
-    m_fenceValues[m_frameIndex]++;
+    m_fenceValues[m_d3dCurrentFrameIndex]++;
 }
 
 // Prepare to render the next frame.
 void D3D12PipelineStateCache::MoveToNextFrame()
 {
     // Schedule a Signal command in the queue.
-    const UINT64 currentFenceValue = m_fenceValues[m_frameIndex];
-    ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), currentFenceValue));
+    const UINT64 currentFenceValue = m_fenceValues[m_d3dCurrentFrameIndex];
+    ThrowIfFailed(m_d3dCommandQueue->Signal(m_fence.Get(), currentFenceValue));
 
     // Update the frame index.
-    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+    m_d3dCurrentFrameIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
 
     // If the next frame is not ready to be rendered yet, wait until it is ready.
-    if (m_fence->GetCompletedValue() < m_fenceValues[m_frameIndex])
+    if (m_fence->GetCompletedValue() < m_fenceValues[m_d3dCurrentFrameIndex])
     {
-        ThrowIfFailed(m_fence->SetEventOnCompletion(m_fenceValues[m_frameIndex], m_fenceEvent));
+        ThrowIfFailed(m_fence->SetEventOnCompletion(m_fenceValues[m_d3dCurrentFrameIndex], m_fenceEvent));
         WaitForSingleObjectEx(m_fenceEvent, INFINITE, FALSE);
     }
 
     // Set the fence value for the next frame.
-    m_fenceValues[m_frameIndex] = currentFenceValue + 1;
+    m_fenceValues[m_d3dCurrentFrameIndex] = currentFenceValue + 1;
 }

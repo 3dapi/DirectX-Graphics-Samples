@@ -17,7 +17,7 @@ D3D12Multithreading* D3D12Multithreading::s_app = nullptr;
 
 D3D12Multithreading::D3D12Multithreading(UINT width, UINT height, std::wstring name) :
     DXSample(width, height, name),
-    m_frameIndex(0),
+    m_d3dCurrentFrameIndex(0),
     m_viewport(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)),
     m_scissorRect(0, 0, static_cast<LONG>(width), static_cast<LONG>(height)),
     m_keyboardInput(),
@@ -78,7 +78,7 @@ void D3D12Multithreading::LoadPipeline()
         ThrowIfFailed(D3D12CreateDevice(
             warpAdapter.Get(),
             D3D_FEATURE_LEVEL_11_0,
-            IID_PPV_ARGS(&m_device)
+            IID_PPV_ARGS(&m_d3dDevice)
             ));
     }
     else
@@ -89,7 +89,7 @@ void D3D12Multithreading::LoadPipeline()
         ThrowIfFailed(D3D12CreateDevice(
             hardwareAdapter.Get(),
             D3D_FEATURE_LEVEL_11_0,
-            IID_PPV_ARGS(&m_device)
+            IID_PPV_ARGS(&m_d3dDevice)
             ));
     }
 
@@ -98,8 +98,8 @@ void D3D12Multithreading::LoadPipeline()
     queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 
-    ThrowIfFailed(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_commandQueue)));
-    NAME_D3D12_OBJECT(m_commandQueue);
+    ThrowIfFailed(m_d3dDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_d3dCommandQueue)));
+    NAME_D3D12_OBJECT(m_d3dCommandQueue);
 
     // Describe and create the swap chain.
     DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
@@ -113,7 +113,7 @@ void D3D12Multithreading::LoadPipeline()
 
     ComPtr<IDXGISwapChain1> swapChain;
     ThrowIfFailed(factory->CreateSwapChainForHwnd(
-        m_commandQueue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
+        m_d3dCommandQueue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
         Win32Application::GetHwnd(),
         &swapChainDesc,
         nullptr,
@@ -124,8 +124,8 @@ void D3D12Multithreading::LoadPipeline()
     // This sample does not support fullscreen transitions.
     ThrowIfFailed(factory->MakeWindowAssociation(Win32Application::GetHwnd(), DXGI_MWA_NO_ALT_ENTER));
 
-    ThrowIfFailed(swapChain.As(&m_swapChain));
-    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+    ThrowIfFailed(swapChain.As(&m_d3dSwapChain));
+    m_d3dCurrentFrameIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
 
     // Create descriptor heaps.
     {
@@ -134,7 +134,7 @@ void D3D12Multithreading::LoadPipeline()
         rtvHeapDesc.NumDescriptors = FrameCount;
         rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
         rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)));
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)));
 
         // Describe and create a depth stencil view (DSV) descriptor heap.
         // Each frame has its own depth stencils (to write shadows onto) 
@@ -143,7 +143,7 @@ void D3D12Multithreading::LoadPipeline()
         dsvHeapDesc.NumDescriptors = 1 + FrameCount * 1;
         dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
         dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvHeap)));
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvHeap)));
 
         // Describe and create a shader resource view (SRV) and constant 
         // buffer view (CBV) descriptor heap.  Heap layout: null views, 
@@ -157,7 +157,7 @@ void D3D12Multithreading::LoadPipeline()
         cbvSrvHeapDesc.NumDescriptors = nullSrvCount + cbvCount + srvCount;
         cbvSrvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         cbvSrvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&cbvSrvHeapDesc, IID_PPV_ARGS(&m_cbvSrvHeap)));
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&cbvSrvHeapDesc, IID_PPV_ARGS(&m_cbvSrvHeap)));
         NAME_D3D12_OBJECT(m_cbvSrvHeap);
 
         // Describe and create a sampler descriptor heap.
@@ -165,13 +165,13 @@ void D3D12Multithreading::LoadPipeline()
         samplerHeapDesc.NumDescriptors = 2;        // One clamp and one wrap sampler.
         samplerHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
         samplerHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&samplerHeapDesc, IID_PPV_ARGS(&m_samplerHeap)));
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&samplerHeapDesc, IID_PPV_ARGS(&m_samplerHeap)));
         NAME_D3D12_OBJECT(m_samplerHeap);
 
-        m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        m_rtvDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
     }
 
-    ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocator)));
+    ThrowIfFailed(m_d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_d3dCommandAllocator)));
 }
 
 // Load the sample assets.
@@ -184,7 +184,7 @@ void D3D12Multithreading::LoadAssets()
         // This is the highest version the sample supports. If CheckFeatureSupport succeeds, the HighestVersion returned will not be greater than this.
         featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
 
-        if (FAILED(m_device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
+        if (FAILED(m_d3dDevice->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
         {
             featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
         }
@@ -207,8 +207,8 @@ void D3D12Multithreading::LoadAssets()
         ComPtr<ID3DBlob> signature;
         ComPtr<ID3DBlob> error;
         ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &signature, &error));
-        ThrowIfFailed(m_device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature)));
-        NAME_D3D12_OBJECT(m_rootSignature);
+        ThrowIfFailed(m_d3dDevice->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_d3dRootSignature)));
+        NAME_D3D12_OBJECT(m_d3dRootSignature);
     }
 
     // Create the pipeline state, which includes loading shaders.
@@ -239,7 +239,7 @@ void D3D12Multithreading::LoadAssets()
         // Describe and create the PSO for rendering the scene.
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
         psoDesc.InputLayout = inputLayoutDesc;
-        psoDesc.pRootSignature = m_rootSignature.Get();
+        psoDesc.pRootSignature = m_d3dRootSignature.Get();
         psoDesc.VS = CD3DX12_SHADER_BYTECODE(vertexShader.Get());
         psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShader.Get());
         psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
@@ -252,7 +252,7 @@ void D3D12Multithreading::LoadAssets()
         psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
         psoDesc.SampleDesc.Count = 1;
 
-        ThrowIfFailed(m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState)));
+        ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState)));
         NAME_D3D12_OBJECT(m_pipelineState);
 
         // Alter the description and create the PSO for rendering
@@ -262,23 +262,23 @@ void D3D12Multithreading::LoadAssets()
         psoDesc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
         psoDesc.NumRenderTargets = 0;
 
-        ThrowIfFailed(m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineStateShadowMap)));
+        ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineStateShadowMap)));
         NAME_D3D12_OBJECT(m_pipelineStateShadowMap);
     }
 
     // Create temporary command list for initial GPU setup.
     ComPtr<ID3D12GraphicsCommandList> commandList;
-    ThrowIfFailed(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocator.Get(), m_pipelineState.Get(), IID_PPV_ARGS(&commandList)));
+    ThrowIfFailed(m_d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_d3dCommandAllocator.Get(), m_pipelineState.Get(), IID_PPV_ARGS(&commandList)));
 
     // Create render target views (RTVs).
     CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart());
     for (UINT i = 0; i < FrameCount; i++)
     {
-        ThrowIfFailed(m_swapChain->GetBuffer(i, IID_PPV_ARGS(&m_renderTargets[i])));
-        m_device->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, rtvHandle);
+        ThrowIfFailed(m_d3dSwapChain->GetBuffer(i, IID_PPV_ARGS(&m_d3dRenderTarget[i])));
+        m_d3dDevice->CreateRenderTargetView(m_d3dRenderTarget[i].Get(), nullptr, rtvHandle);
         rtvHandle.Offset(1, m_rtvDescriptorSize);
 
-        NAME_D3D12_OBJECT_INDEXED(m_renderTargets, i);
+        NAME_D3D12_OBJECT_INDEXED(m_d3dRenderTarget, i);
     }
 
     // Create the depth stencil.
@@ -301,18 +301,18 @@ void D3D12Multithreading::LoadAssets()
         clearValue.DepthStencil.Depth = 1.0f;
         clearValue.DepthStencil.Stencil = 0;
 
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
             &shadowTextureDesc,
             D3D12_RESOURCE_STATE_DEPTH_WRITE,
             &clearValue,
-            IID_PPV_ARGS(&m_depthStencil)));
+            IID_PPV_ARGS(&m_d3dDepthStencil)));
 
-        NAME_D3D12_OBJECT(m_depthStencil);
+        NAME_D3D12_OBJECT(m_d3dDepthStencil);
 
         // Create the depth stencil view.
-        m_device->CreateDepthStencilView(m_depthStencil.Get(), nullptr, m_dsvHeap->GetCPUDescriptorHandleForHeapStart());
+        m_d3dDevice->CreateDepthStencilView(m_d3dDepthStencil.Get(), nullptr, m_dsvHeap->GetCPUDescriptorHandleForHeapStart());
     }
 
     // Load scene assets.
@@ -322,7 +322,7 @@ void D3D12Multithreading::LoadAssets()
 
     // Create the vertex buffer.
     {
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(SampleAssets::VertexDataSize),
@@ -333,7 +333,7 @@ void D3D12Multithreading::LoadAssets()
         NAME_D3D12_OBJECT(m_vertexBuffer);
 
         {
-            ThrowIfFailed(m_device->CreateCommittedResource(
+            ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
                 &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
                 D3D12_HEAP_FLAG_NONE,
                 &CD3DX12_RESOURCE_DESC::Buffer(SampleAssets::VertexDataSize),
@@ -364,7 +364,7 @@ void D3D12Multithreading::LoadAssets()
 
     // Create the index buffer.
     {
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(SampleAssets::IndexDataSize),
@@ -375,7 +375,7 @@ void D3D12Multithreading::LoadAssets()
         NAME_D3D12_OBJECT(m_indexBuffer);
 
         {
-            ThrowIfFailed(m_device->CreateCommittedResource(
+            ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
                 &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
                 D3D12_HEAP_FLAG_NONE,
                 &CD3DX12_RESOURCE_DESC::Buffer(SampleAssets::IndexDataSize),
@@ -407,7 +407,7 @@ void D3D12Multithreading::LoadAssets()
     // Create shader resources.
     {
         // Get the CBV SRV descriptor size for the current device.
-        const UINT cbvSrvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        const UINT cbvSrvDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
         // Get a handle to the start of the descriptor heap.
         CD3DX12_CPU_DESCRIPTOR_HANDLE cbvSrvHandle(m_cbvSrvHeap->GetCPUDescriptorHandleForHeapStart());
@@ -423,10 +423,10 @@ void D3D12Multithreading::LoadAssets()
             nullSrvDesc.Texture2D.MostDetailedMip = 0;
             nullSrvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
-            m_device->CreateShaderResourceView(nullptr, &nullSrvDesc, cbvSrvHandle);
+            m_d3dDevice->CreateShaderResourceView(nullptr, &nullSrvDesc, cbvSrvHandle);
             cbvSrvHandle.Offset(cbvSrvDescriptorSize);
 
-            m_device->CreateShaderResourceView(nullptr, &nullSrvDesc, cbvSrvHandle);
+            m_d3dDevice->CreateShaderResourceView(nullptr, &nullSrvDesc, cbvSrvHandle);
             cbvSrvHandle.Offset(cbvSrvDescriptorSize);
         }
 
@@ -450,7 +450,7 @@ void D3D12Multithreading::LoadAssets()
                 D3D12_TEXTURE_LAYOUT_UNKNOWN,
                 D3D12_RESOURCE_FLAG_NONE);
 
-            ThrowIfFailed(m_device->CreateCommittedResource(
+            ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
                 &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
                 D3D12_HEAP_FLAG_NONE,
                 &texDesc,
@@ -463,7 +463,7 @@ void D3D12Multithreading::LoadAssets()
             {
                 const UINT subresourceCount = texDesc.DepthOrArraySize * texDesc.MipLevels;
                 UINT64 uploadBufferSize = GetRequiredIntermediateSize(m_textures[i].Get(), 0, subresourceCount);
-                ThrowIfFailed(m_device->CreateCommittedResource(
+                ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
                     &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
                     D3D12_HEAP_FLAG_NONE,
                     &CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize),
@@ -490,7 +490,7 @@ void D3D12Multithreading::LoadAssets()
             srvDesc.Texture2D.MipLevels = tex.MipLevels;
             srvDesc.Texture2D.MostDetailedMip = 0;
             srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
-            m_device->CreateShaderResourceView(m_textures[i].Get(), &srvDesc, cbvSrvHandle);
+            m_d3dDevice->CreateShaderResourceView(m_textures[i].Get(), &srvDesc, cbvSrvHandle);
 
             // Move to the next descriptor slot.
             cbvSrvHandle.Offset(cbvSrvDescriptorSize);
@@ -503,7 +503,7 @@ void D3D12Multithreading::LoadAssets()
     // Create the samplers.
     {
         // Get the sampler descriptor size for the current device.
-        const UINT samplerDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+        const UINT samplerDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
 
         // Get a handle to the start of the descriptor heap.
         CD3DX12_CPU_DESCRIPTOR_HANDLE samplerHandle(m_samplerHeap->GetCPUDescriptorHandleForHeapStart());
@@ -521,7 +521,7 @@ void D3D12Multithreading::LoadAssets()
         wrapSamplerDesc.MaxAnisotropy = 1;
         wrapSamplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
         wrapSamplerDesc.BorderColor[0] = wrapSamplerDesc.BorderColor[1] = wrapSamplerDesc.BorderColor[2] = wrapSamplerDesc.BorderColor[3] = 0;
-        m_device->CreateSampler(&wrapSamplerDesc, samplerHandle);
+        m_d3dDevice->CreateSampler(&wrapSamplerDesc, samplerHandle);
 
         // Move the handle to the next slot in the descriptor heap.
         samplerHandle.Offset(samplerDescriptorSize);
@@ -539,7 +539,7 @@ void D3D12Multithreading::LoadAssets()
         clampSamplerDesc.BorderColor[0] = clampSamplerDesc.BorderColor[1] = clampSamplerDesc.BorderColor[2] = clampSamplerDesc.BorderColor[3] = 0;
         clampSamplerDesc.MinLOD = 0;
         clampSamplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
-        m_device->CreateSampler(&clampSamplerDesc, samplerHandle);
+        m_d3dDevice->CreateSampler(&clampSamplerDesc, samplerHandle);
     }
 
     // Create lights.
@@ -562,12 +562,12 @@ void D3D12Multithreading::LoadAssets()
     // Close the command list and use it to execute the initial GPU setup.
     ThrowIfFailed(commandList->Close());
     ID3D12CommandList* ppCommandLists[] = { commandList.Get() };
-    m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+    m_d3dCommandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 
     // Create frame resources.
     for (int i = 0; i < FrameCount; i++)
     {
-        m_frameResources[i] = new FrameResource(m_device.Get(), m_pipelineState.Get(), m_pipelineStateShadowMap.Get(), m_dsvHeap.Get(), m_cbvSrvHeap.Get(), &m_viewport, i);
+        m_frameResources[i] = new FrameResource(m_d3dDevice.Get(), m_pipelineState.Get(), m_pipelineStateShadowMap.Get(), m_dsvHeap.Get(), m_cbvSrvHeap.Get(), &m_viewport, i);
         m_frameResources[i]->WriteConstantBuffers(&m_viewport, &m_camera, m_lightCameras, m_lights);
     }
     m_currentFrameResourceIndex = 0;
@@ -575,7 +575,7 @@ void D3D12Multithreading::LoadAssets()
 
     // Create synchronization objects and wait until assets have been uploaded to the GPU.
     {
-        ThrowIfFailed(m_device->CreateFence(m_fenceValue, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
+        ThrowIfFailed(m_d3dDevice->CreateFence(m_fenceValue, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
         m_fenceValue++;
 
         // Create an event handle to use for frame synchronization.
@@ -591,7 +591,7 @@ void D3D12Multithreading::LoadAssets()
 
         // Signal and increment the fence value.
         const UINT64 fenceToWaitFor = m_fenceValue;
-        ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), fenceToWaitFor));
+        ThrowIfFailed(m_d3dCommandQueue->Signal(m_fence.Get(), fenceToWaitFor));
         m_fenceValue++;
 
         // Wait until the fence is completed.
@@ -657,7 +657,7 @@ void D3D12Multithreading::OnUpdate()
 {
     m_timer.Tick(NULL);
 
-    PIXSetMarker(m_commandQueue.Get(), 0, L"Getting last completed fence.");
+    PIXSetMarker(m_d3dCommandQueue.Get(), 0, L"Getting last completed fence.");
 
     // Get current GPU progress against submitted workload. Resources still scheduled 
     // for GPU execution cannot be modified or else undefined behavior will result.
@@ -728,7 +728,7 @@ void D3D12Multithreading::OnRender()
         }
         MidFrame();
         EndFrame();
-        m_commandQueue->ExecuteCommandLists(_countof(m_pCurrentFrameResource->m_batchSubmit), m_pCurrentFrameResource->m_batchSubmit);
+        m_d3dCommandQueue->ExecuteCommandLists(_countof(m_pCurrentFrameResource->m_batchSubmit), m_pCurrentFrameResource->m_batchSubmit);
 #else
         for (int i = 0; i < NumContexts; i++)
         {
@@ -743,12 +743,12 @@ void D3D12Multithreading::OnRender()
         // You can execute command lists on any thread. Depending on the work 
         // load, apps can choose between using ExecuteCommandLists on one thread 
         // vs ExecuteCommandList from multiple threads.
-        m_commandQueue->ExecuteCommandLists(NumContexts + 2, m_pCurrentFrameResource->m_batchSubmit); // Submit PRE, MID and shadows.
+        m_d3dCommandQueue->ExecuteCommandLists(NumContexts + 2, m_pCurrentFrameResource->m_batchSubmit); // Submit PRE, MID and shadows.
 
         WaitForMultipleObjects(NumContexts, m_workerFinishedRenderFrame, TRUE, INFINITE);
 
         // Submit remaining command lists.
-        m_commandQueue->ExecuteCommandLists(_countof(m_pCurrentFrameResource->m_batchSubmit) - NumContexts - 2, m_pCurrentFrameResource->m_batchSubmit + NumContexts + 2);
+        m_d3dCommandQueue->ExecuteCommandLists(_countof(m_pCurrentFrameResource->m_batchSubmit) - NumContexts - 2, m_pCurrentFrameResource->m_batchSubmit + NumContexts + 2);
 #endif
 
         m_cpuTimer.Tick(NULL);
@@ -769,14 +769,14 @@ void D3D12Multithreading::OnRender()
         }
 
         // Present and update the frame index for the next frame.
-        PIXBeginEvent(m_commandQueue.Get(), 0, L"Presenting to screen");
-        ThrowIfFailed(m_swapChain->Present(1, 0));
-        PIXEndEvent(m_commandQueue.Get());
-        m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+        PIXBeginEvent(m_d3dCommandQueue.Get(), 0, L"Presenting to screen");
+        ThrowIfFailed(m_d3dSwapChain->Present(1, 0));
+        PIXEndEvent(m_d3dCommandQueue.Get());
+        m_d3dCurrentFrameIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
 
         // Signal and increment the fence value.
         m_pCurrentFrameResource->m_fenceValue = m_fenceValue;
-        ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), m_fenceValue));
+        ThrowIfFailed(m_d3dCommandQueue->Signal(m_fence.Get(), m_fenceValue));
         m_fenceValue++;
     }
     catch (HrException& e)
@@ -796,10 +796,10 @@ void D3D12Multithreading::OnRender()
 void D3D12Multithreading::ReleaseD3DResources()
 {
     m_fence.Reset();
-    ResetComPtrArray(&m_renderTargets);
-    m_commandQueue.Reset();
-    m_swapChain.Reset();
-    m_device.Reset();
+    ResetComPtrArray(&m_d3dRenderTarget);
+    m_d3dCommandQueue.Reset();
+    m_d3dSwapChain.Reset();
+    m_d3dDevice.Reset();
 }
 
 // Tears down D3D resources and reinitializes them.
@@ -822,7 +822,7 @@ void D3D12Multithreading::RestoreD3DResources()
 void D3D12Multithreading::WaitForGpu()
 {
     // Schedule a Signal command in the queue.
-    ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), m_fenceValue));
+    ThrowIfFailed(m_d3dCommandQueue->Signal(m_fence.Get(), m_fenceValue));
 
     // Wait until the fence has been processed.
     ThrowIfFailed(m_fence->SetEventOnCompletion(m_fenceValue, m_fenceEvent));
@@ -838,7 +838,7 @@ void D3D12Multithreading::OnDestroy()
         const UINT64 lastCompletedFence = m_fence->GetCompletedValue();
 
         // Signal and increment the fence value.
-        ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), m_fenceValue));
+        ThrowIfFailed(m_d3dCommandQueue->Signal(m_fence.Get(), m_fenceValue));
         m_fenceValue++;
 
         // Wait until the previous frame is finished.
@@ -912,11 +912,11 @@ void D3D12Multithreading::BeginFrame()
     m_pCurrentFrameResource->Init();
 
     // Indicate that the back buffer will be used as a render target.
-    m_pCurrentFrameResource->m_commandLists[CommandListPre]->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+    m_pCurrentFrameResource->m_commandLists[CommandListPre]->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_d3dRenderTarget[m_d3dCurrentFrameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
 
     // Clear the render target and depth stencil.
     const float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_d3dCurrentFrameIndex, m_rtvDescriptorSize);
     m_pCurrentFrameResource->m_commandLists[CommandListPre]->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
     m_pCurrentFrameResource->m_commandLists[CommandListPre]->ClearDepthStencilView(m_dsvHeap->GetCPUDescriptorHandleForHeapStart(), D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 
@@ -938,7 +938,7 @@ void D3D12Multithreading::EndFrame()
     m_pCurrentFrameResource->Finish();
 
     // Indicate that the back buffer will now be used to present.
-    m_pCurrentFrameResource->m_commandLists[CommandListPost]->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
+    m_pCurrentFrameResource->m_commandLists[CommandListPost]->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_d3dRenderTarget[m_d3dCurrentFrameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
 
     ThrowIfFailed(m_pCurrentFrameResource->m_commandLists[CommandListPost]->Close());
 }
@@ -1000,14 +1000,14 @@ void D3D12Multithreading::WorkerThread(int threadIndex)
         // Populate the command list.  These can only be sent after the shadow 
         // passes for this frame have been submitted.
         SetCommonPipelineState(pSceneCommandList);
-        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
+        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_d3dCurrentFrameIndex, m_rtvDescriptorSize);
         CD3DX12_CPU_DESCRIPTOR_HANDLE dsvHandle(m_dsvHeap->GetCPUDescriptorHandleForHeapStart());
         m_pCurrentFrameResource->Bind(pSceneCommandList, TRUE, &rtvHandle, &dsvHandle);
 
         PIXBeginEvent(pSceneCommandList, 0, L"Worker drawing scene pass...");
 
         D3D12_GPU_DESCRIPTOR_HANDLE cbvSrvHeapStart = m_cbvSrvHeap->GetGPUDescriptorHandleForHeapStart();
-        const UINT cbvSrvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        const UINT cbvSrvDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         const UINT nullSrvCount = 2;
         for (int j = threadIndex; j < _countof(SampleAssets::Draws); j += NumContexts)
         {
@@ -1032,7 +1032,7 @@ void D3D12Multithreading::WorkerThread(int threadIndex)
 
 void D3D12Multithreading::SetCommonPipelineState(ID3D12GraphicsCommandList* pCommandList)
 {
-    pCommandList->SetGraphicsRootSignature(m_rootSignature.Get());
+    pCommandList->SetGraphicsRootSignature(m_d3dRootSignature.Get());
 
     ID3D12DescriptorHeap* ppHeaps[] = { m_cbvSrvHeap.Get(), m_samplerHeap.Get() };
     pCommandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);

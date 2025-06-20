@@ -22,7 +22,7 @@
 CrossNodeResources::CrossNodeResources(IDXGIFactory4* pFactory, ID3D12Device* pDevice)
 {
     pFactory->QueryInterface(IID_PPV_ARGS(&m_factory));
-    pDevice->QueryInterface(IID_PPV_ARGS(&m_device));
+    pDevice->QueryInterface(IID_PPV_ARGS(&m_d3dDevice));
 
     LoadPipeline();
     LoadAssets();
@@ -46,7 +46,7 @@ void CrossNodeResources::LoadPipeline()
 
         if (!m_queues[nodeIndex])
         {
-            ThrowIfFailed(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_queues[nodeIndex])));
+            ThrowIfFailed(m_d3dDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_queues[nodeIndex])));
         }
         ppQueues[n] = m_queues[nodeIndex].Get();
     }
@@ -73,12 +73,12 @@ void CrossNodeResources::LoadPipeline()
         &swapChain
         ));
 
-    ThrowIfFailed(swapChain.As(&m_swapChain));
+    ThrowIfFailed(swapChain.As(&m_d3dSwapChain));
 
     if (Settings::NodeCount > 1)
     {
         // Set up the swap chain to allow back buffers to live on multiple GPU nodes.
-        ThrowIfFailed(m_swapChain->ResizeBuffers1(
+        ThrowIfFailed(m_d3dSwapChain->ResizeBuffers1(
             swapChainDesc.BufferCount,
             swapChainDesc.Width,
             swapChainDesc.Height,
@@ -99,7 +99,7 @@ void CrossNodeResources::LoadAssets()
         // This is the highest version the sample supports. If CheckFeatureSupport succeeds, the HighestVersion returned will not be greater than this.
         featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
 
-        if (FAILED(m_device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
+        if (FAILED(m_d3dDevice->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
         {
             featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
         }
@@ -119,7 +119,7 @@ void CrossNodeResources::LoadAssets()
             ComPtr<ID3DBlob> signature;
             ComPtr<ID3DBlob> error;
             ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&sceneRootSignatureDesc, featureData.HighestVersion, &signature, &error));
-            ThrowIfFailed(m_device->CreateRootSignature(Settings::SharedNodeMask, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_sceneRootSignature)));
+            ThrowIfFailed(m_d3dDevice->CreateRootSignature(Settings::SharedNodeMask, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_sceneRootSignature)));
         }
 
         // Create a root signature for the post-process pass.
@@ -142,7 +142,7 @@ void CrossNodeResources::LoadAssets()
             ComPtr<ID3DBlob> signature;
             ComPtr<ID3DBlob> error;
             ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&postRootSignatureDesc, featureData.HighestVersion, &signature, &error));
-            ThrowIfFailed(m_device->CreateRootSignature(Settings::SharedNodeMask, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_postRootSignature)));
+            ThrowIfFailed(m_d3dDevice->CreateRootSignature(Settings::SharedNodeMask, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_postRootSignature)));
         }
     }
 
@@ -172,7 +172,7 @@ void CrossNodeResources::LoadAssets()
         psoDesc.SampleDesc.Count = 1;
         psoDesc.NodeMask = Settings::SharedNodeMask;
 
-        ThrowIfFailed(m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_scenePipelineState)));
+        ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_scenePipelineState)));
 
         // Define the vertex input layout for the post-process fullscreen quad.
         D3D12_INPUT_ELEMENT_DESC postInputElementDescs[] =
@@ -198,7 +198,7 @@ void CrossNodeResources::LoadAssets()
         postPsoDesc.SampleDesc.Count = 1;
         postPsoDesc.NodeMask = Settings::SharedNodeMask;
 
-        ThrowIfFailed(m_device->CreateGraphicsPipelineState(&postPsoDesc, IID_PPV_ARGS(&m_postPipelineState)));
+        ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&postPsoDesc, IID_PPV_ARGS(&m_postPipelineState)));
     }
 
     // Create and map the constant buffers.
@@ -209,7 +209,7 @@ void CrossNodeResources::LoadAssets()
         D3D12_HEAP_PROPERTIES uploadHeapProps = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
         uploadHeapProps.VisibleNodeMask = Settings::SharedNodeMask;
 
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
             &uploadHeapProps,
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(constantBufferDataSize),
@@ -235,7 +235,7 @@ void CrossNodeResources::UpdateConstantBuffer(UINT8* data, UINT dataSize, UINT64
 void CrossNodeResources::ResizeSwapChain()
 {
     DXGI_SWAP_CHAIN_DESC desc = {};
-    m_swapChain->GetDesc(&desc);
+    m_d3dSwapChain->GetDesc(&desc);
 
     if (Settings::NodeCount > 1)
     {
@@ -248,10 +248,10 @@ void CrossNodeResources::ResizeSwapChain()
             ppQueues[n] = m_queues[nodeIndex].Get();
         }
 
-        ThrowIfFailed(m_swapChain->ResizeBuffers1(Settings::BackBufferCount, Settings::Width, Settings::Height, desc.BufferDesc.Format, desc.Flags, creationNodes.data(), ppQueues.data()));
+        ThrowIfFailed(m_d3dSwapChain->ResizeBuffers1(Settings::BackBufferCount, Settings::Width, Settings::Height, desc.BufferDesc.Format, desc.Flags, creationNodes.data(), ppQueues.data()));
     }
     else
     {
-        ThrowIfFailed(m_swapChain->ResizeBuffers(Settings::BackBufferCount, Settings::Width, Settings::Height, desc.BufferDesc.Format, desc.Flags));
+        ThrowIfFailed(m_d3dSwapChain->ResizeBuffers(Settings::BackBufferCount, Settings::Width, Settings::Height, desc.BufferDesc.Format, desc.Flags));
     }
 }

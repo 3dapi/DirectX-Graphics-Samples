@@ -61,19 +61,19 @@ private:
     // Pipeline objects.
     CD3DX12_VIEWPORT m_viewport;
     CD3DX12_RECT m_scissorRect;
-    ComPtr<IDXGISwapChain3> m_swapChain;
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[FrameCount];
     ComPtr<ID3D12CommandAllocator> m_commandAllocators[FrameCount];
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
-    ComPtr<ID3D12RootSignature> m_rootSignature;
+    ComPtr<ID3D12CommandQueue> m_d3dCommandQueue;
+    ComPtr<ID3D12RootSignature> m_d3dRootSignature;
     ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
     ComPtr<ID3D12DescriptorHeap> m_cbvHeap;
     ComPtr<ID3D12DescriptorHeap> m_dsvHeap;
     ComPtr<ID3D12QueryHeap> m_queryHeap;
     UINT m_rtvDescriptorSize;
     UINT m_cbvSrvDescriptorSize;
-    UINT m_frameIndex;
+    UINT m_d3dCurrentFrameIndex;
 
     // Synchronization objects.
     ComPtr<ID3D12Fence> m_fence;
@@ -86,7 +86,7 @@ private:
     ComPtr<ID3D12GraphicsCommandList> m_commandList;
     ComPtr<ID3D12Resource> m_vertexBuffer;
     ComPtr<ID3D12Resource> m_constantBuffer;
-    ComPtr<ID3D12Resource> m_depthStencil;
+    ComPtr<ID3D12Resource> m_d3dDepthStencil;
     ComPtr<ID3D12Resource> m_queryResult;
     D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
 

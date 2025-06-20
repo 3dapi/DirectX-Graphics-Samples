@@ -33,8 +33,8 @@ protected:
     virtual void OnDestroy();
 
 private:
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<IDXGISwapChain3> m_swapChain;
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
     ComPtr<ID3D12CommandQueue> m_graphicsQueue;
     std::vector<ComPtr<ID3D12CommandAllocator>> m_sceneCommandAllocators;
     std::vector<ComPtr<ID3D12CommandAllocator>> m_postCommandAllocators;
@@ -102,7 +102,7 @@ private:
 
     UINT64 m_frameId;
     UINT m_simulatedGpuLoad;
-    UINT m_frameIndex;
+    UINT m_d3dCurrentFrameIndex;
     UINT m_sceneRenderTargetIndex;
     UINT m_syncInterval;
     bool m_windowVisible;

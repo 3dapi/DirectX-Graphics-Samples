@@ -43,8 +43,8 @@ protected:
     virtual void OnDestroy();
 
 private:
-    ComPtr<CD3DX12AffinityDevice> m_device;
-    ComPtr<CDXGIAffinitySwapChain> m_swapChain;
+    ComPtr<CD3DX12AffinityDevice> m_d3dDevice;
+    ComPtr<CDXGIAffinitySwapChain> m_d3dSwapChain;
     ComPtr<CD3DX12AffinityCommandQueue> m_graphicsQueue;
     std::vector<ComPtr<CD3DX12AffinityCommandAllocator>> m_sceneCommandAllocators;
     std::vector<ComPtr<CD3DX12AffinityCommandAllocator>> m_postCommandAllocators;
@@ -113,7 +113,7 @@ private:
     UINT64 m_frameId;
     UINT m_simulatedGpuLoad;
     UINT m_nodeIndex;
-    UINT m_frameIndex;
+    UINT m_d3dCurrentFrameIndex;
     UINT m_sceneRenderTargetIndex;
     UINT m_syncInterval;
     bool m_windowVisible;

@@ -33,7 +33,7 @@ public:
     virtual void OnDestroy();
 
 private:
-    // In this sample we overload the meaning of FrameCount to mean both the maximum
+    // In this sample we overload the meaning of m_RenderTargetCount to mean both the maximum
     // number of frames that will be queued to the GPU at a time, as well as the number
     // of back buffers in the DXGI swap chain. For the majority of applications, this
     // is convenient and works well. However, there will be certain cases where an
@@ -41,7 +41,7 @@ private:
     // available.
     // It should be noted that excessive buffering of frames dependent on user input
     // may result in noticeable latency in your app.
-    static const UINT FrameCount = 2;
+    static const UINT m_RenderTargetCount = 2;
 
     struct Vertex
     {
@@ -52,16 +52,16 @@ private:
     // Pipeline objects.
     CD3DX12_VIEWPORT m_viewport;
     CD3DX12_RECT m_scissorRect;
-    ComPtr<IDXGISwapChain3> m_swapChain;
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
-    ComPtr<ID3D12CommandAllocator> m_commandAllocators[FrameCount];
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
-    ComPtr<ID3D12RootSignature> m_rootSignature;
-    ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
-    ComPtr<ID3D12PipelineState> m_pipelineState;
-    ComPtr<ID3D12GraphicsCommandList> m_commandList;
-    UINT m_rtvDescriptorSize;
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[m_RenderTargetCount];
+    ComPtr<ID3D12CommandAllocator> m_d3dCommandAllocators[m_RenderTargetCount];
+    ComPtr<ID3D12CommandQueue> m_d3dCommandQueue;
+    ComPtr<ID3D12RootSignature> m_d3dRootSignature;
+    ComPtr<ID3D12DescriptorHeap> m_d3dDecsHeap;
+    ComPtr<ID3D12PipelineState> m_d3dPipelineState;
+    ComPtr<ID3D12GraphicsCommandList> m_d3dCommandList;
+    UINT m_d3dDescriptorSize;
 
     // App resources.
     ComPtr<ID3D12Resource> m_vertexBuffer;
@@ -71,7 +71,7 @@ private:
     UINT m_frameIndex;
     HANDLE m_fenceEvent;
     ComPtr<ID3D12Fence> m_fence;
-    UINT64 m_fenceValues[FrameCount];
+    UINT64 m_fenceValues[m_RenderTargetCount];
 
     void LoadPipeline();
     void LoadAssets();

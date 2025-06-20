@@ -37,7 +37,7 @@ public:
     virtual void OnKeyUp(UINT8 key);
 
 private:
-    static const UINT FrameCount = 2;
+    static const UINT m_RenderTargetCount = 2;
     static const UINT ThreadCount = 1;
     static const float ParticleSpread;
     static const UINT ParticleCount = 10000;        // The number of particles in the n-body simulation.
@@ -80,23 +80,23 @@ private:
     // Pipeline objects.
     CD3DX12_VIEWPORT m_viewport;
     CD3DX12_RECT m_scissorRect;
-    ComPtr<IDXGISwapChain3> m_swapChain;
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[m_RenderTargetCount];
     UINT m_frameIndex;
-    ComPtr<ID3D12CommandAllocator> m_commandAllocators[FrameCount];
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
-    ComPtr<ID3D12RootSignature> m_rootSignature;
+    ComPtr<ID3D12CommandAllocator> m_d3dCommandAllocators[m_RenderTargetCount];
+    ComPtr<ID3D12CommandQueue> m_d3dCommandQueue;
+    ComPtr<ID3D12RootSignature> m_d3dRootSignature;
     ComPtr<ID3D12RootSignature> m_computeRootSignature;
-    ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
+    ComPtr<ID3D12DescriptorHeap> m_d3dDecsHeap;
     ComPtr<ID3D12DescriptorHeap> m_srvUavHeap;
-    UINT m_rtvDescriptorSize;
+    UINT m_d3dDescriptorSize;
     UINT m_srvUavDescriptorSize;
 
     // Asset objects.
-    ComPtr<ID3D12PipelineState> m_pipelineState;
+    ComPtr<ID3D12PipelineState> m_d3dPipelineState;
     ComPtr<ID3D12PipelineState> m_computeState;
-    ComPtr<ID3D12GraphicsCommandList> m_commandList;
+    ComPtr<ID3D12GraphicsCommandList> m_d3dCommandList;
     ComPtr<ID3D12Resource> m_vertexBuffer;
     ComPtr<ID3D12Resource> m_vertexBufferUpload;
     D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
@@ -120,11 +120,11 @@ private:
     ComPtr<ID3D12GraphicsCommandList> m_computeCommandList[ThreadCount];
 
     // Synchronization objects.
-    HANDLE m_swapChainEvent;
+    HANDLE m_d3dSwapChainEvent;
     ComPtr<ID3D12Fence> m_renderContextFence;
     UINT64 m_renderContextFenceValue;
     HANDLE m_renderContextFenceEvent;
-    UINT64 m_frameFenceValues[FrameCount];
+    UINT64 m_frameFenceValues[m_RenderTargetCount];
 
     ComPtr<ID3D12Fence> m_threadFences[ThreadCount];
     volatile HANDLE m_threadFenceEvents[ThreadCount];

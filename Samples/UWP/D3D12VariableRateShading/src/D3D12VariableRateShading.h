@@ -25,7 +25,7 @@ public:
     D3D12VariableRateShading(UINT width, UINT height, std::wstring name);
     ~D3D12VariableRateShading();
 
-    static const UINT FrameCount = 3;
+    static const UINT m_RenderTargetCount = 3;
 
 protected:
     virtual void OnInit();
@@ -35,14 +35,14 @@ protected:
     virtual void OnUpdate();
     virtual void OnRender();
     virtual void OnDestroy();
-    virtual IDXGISwapChain* GetSwapchain() { return m_swapChain.Get(); }
+    virtual IDXGISwapChain* GetSwapchain() { return m_d3dSwapChain.Get(); }
 
 private:
     // D3D objects.
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
-    ComPtr<IDXGISwapChain4> m_swapChain;
-    ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<ID3D12CommandQueue> m_d3dCommandQueue;
+    ComPtr<IDXGISwapChain4> m_d3dSwapChain;
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[m_RenderTargetCount];
     ComPtr<ID3D12Fence> m_fence;
     
     // Scene rendering resources.
@@ -59,7 +59,7 @@ private:
     // Frame synchronization objects.
     UINT   m_frameIndex;
     HANDLE m_fenceEvent;
-    UINT64 m_fenceValues[FrameCount];
+    UINT64 m_fenceValues[m_RenderTargetCount];
 
     // Window state.
     bool m_windowVisible;

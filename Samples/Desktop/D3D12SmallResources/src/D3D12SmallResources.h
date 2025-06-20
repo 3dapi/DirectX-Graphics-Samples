@@ -54,20 +54,20 @@ private:
     // Pipeline objects.
     CD3DX12_VIEWPORT m_viewport;
     CD3DX12_RECT m_scissorRect;
-    ComPtr<IDXGISwapChain3> m_swapChain;
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
     ComPtr<IDXGIAdapter3> m_adapter;
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[FrameCount];
     ComPtr<ID3D12CommandAllocator> m_commandAllocators[FrameCount];
     ComPtr<ID3D12CommandAllocator> m_copyCommandAllocator;
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
+    ComPtr<ID3D12CommandQueue> m_d3dCommandQueue;
     ComPtr<ID3D12CommandQueue> m_copyQueue;
-    ComPtr<ID3D12RootSignature> m_rootSignature;
+    ComPtr<ID3D12RootSignature> m_d3dRootSignature;
     ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
     ComPtr<ID3D12DescriptorHeap> m_srvHeap;
     UINT m_rtvDescriptorSize;
     UINT m_srvDescriptorSize;
-    UINT m_frameIndex;
+    UINT m_d3dCurrentFrameIndex;
 
     // Synchronization objects.
     ComPtr<ID3D12Fence> m_fence;

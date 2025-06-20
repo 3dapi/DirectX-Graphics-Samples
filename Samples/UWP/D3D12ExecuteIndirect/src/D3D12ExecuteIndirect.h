@@ -34,9 +34,9 @@ public:
     virtual void OnKeyDown(UINT8 key);
 
 private:
-    static const UINT FrameCount = 3;
+    static const UINT m_RenderTargetCount = 3;
     static const UINT TriangleCount = 1024;
-    static const UINT TriangleResourceCount = TriangleCount * FrameCount;
+    static const UINT TriangleResourceCount = TriangleCount * m_RenderTargetCount;
     static const UINT CommandSizePerFrame;                // The size of the indirect commands to draw all of the triangles in a single frame.
     static const UINT CommandBufferCounterOffset;        // The offset of the UAV counter in the processed command buffer.
     static const UINT ComputeThreadBlockSize = 128;        // Should match the value in compute.hlsl.
@@ -114,39 +114,39 @@ private:
     CD3DX12_VIEWPORT m_viewport;
     CD3DX12_RECT m_scissorRect;
     D3D12_RECT m_cullingScissorRect;
-    ComPtr<IDXGISwapChain3> m_swapChain;
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
-    ComPtr<ID3D12CommandAllocator> m_commandAllocators[FrameCount];
-    ComPtr<ID3D12CommandAllocator> m_computeCommandAllocators[FrameCount];
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[m_RenderTargetCount];
+    ComPtr<ID3D12CommandAllocator> m_d3dCommandAllocators[m_RenderTargetCount];
+    ComPtr<ID3D12CommandAllocator> m_computeCommandAllocators[m_RenderTargetCount];
+    ComPtr<ID3D12CommandQueue> m_d3dCommandQueue;
     ComPtr<ID3D12CommandQueue> m_computeCommandQueue;
-    ComPtr<ID3D12RootSignature> m_rootSignature;
+    ComPtr<ID3D12RootSignature> m_d3dRootSignature;
     ComPtr<ID3D12RootSignature> m_computeRootSignature;
     ComPtr<ID3D12CommandSignature> m_commandSignature;
-    ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
+    ComPtr<ID3D12DescriptorHeap> m_d3dDecsHeap;
     ComPtr<ID3D12DescriptorHeap> m_dsvHeap;
     ComPtr<ID3D12DescriptorHeap> m_cbvSrvUavHeap;
-    UINT m_rtvDescriptorSize;
+    UINT m_d3dDescriptorSize;
     UINT m_cbvSrvUavDescriptorSize;
     UINT m_frameIndex;
 
     // Synchronization objects.
     ComPtr<ID3D12Fence> m_fence;
     ComPtr<ID3D12Fence> m_computeFence;
-    UINT64 m_fenceValues[FrameCount];
+    UINT64 m_fenceValues[m_RenderTargetCount];
     HANDLE m_fenceEvent;
 
     // Asset objects.
-    ComPtr<ID3D12PipelineState> m_pipelineState;
+    ComPtr<ID3D12PipelineState> m_d3dPipelineState;
     ComPtr<ID3D12PipelineState> m_computeState;
-    ComPtr<ID3D12GraphicsCommandList> m_commandList;
+    ComPtr<ID3D12GraphicsCommandList> m_d3dCommandList;
     ComPtr<ID3D12GraphicsCommandList> m_computeCommandList;
     ComPtr<ID3D12Resource> m_vertexBuffer;
     ComPtr<ID3D12Resource> m_constantBuffer;
-    ComPtr<ID3D12Resource> m_depthStencil;
+    ComPtr<ID3D12Resource> m_d3dDepthStencil;
     ComPtr<ID3D12Resource> m_commandBuffer;
-    ComPtr<ID3D12Resource> m_processedCommandBuffers[FrameCount];
+    ComPtr<ID3D12Resource> m_processedCommandBuffers[m_RenderTargetCount];
     ComPtr<ID3D12Resource> m_processedCommandBufferCounterReset;
     D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
 

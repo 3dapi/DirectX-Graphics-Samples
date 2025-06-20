@@ -37,7 +37,7 @@ public:
     virtual void OnDestroy();
 
 private:
-    static const UINT FrameCount = 2;
+    static const UINT FRAME_BUFFER_COUNT = 2;
 
     struct WorkGraphContext
     {
@@ -58,26 +58,26 @@ private:
     };
 
     // Pipeline objects.
-    CD3DX12_VIEWPORT m_viewport;
-    CD3DX12_RECT m_scissorRect;
-    ComPtr<IDXGISwapChain3> m_swapChain;
-    ComPtr<ID3D12Device14> m_device;
-    ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
-    ComPtr<ID3D12CommandAllocator> m_commandAllocator;
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
+    CD3DX12_VIEWPORT m_d3dViewport;
+    CD3DX12_RECT m_d3dScissorRect;
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
+    ComPtr<ID3D12Device14> m_d3dDevice;
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[FRAME_BUFFER_COUNT];
+    ComPtr<ID3D12CommandAllocator> m_d3dCommandAllocator;
+    ComPtr<ID3D12CommandQueue> m_d3dCommandQueue;
     ComPtr<ID3D12RootSignature> m_globalRootSignature;
     ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
     ComPtr<ID3D12StateObject> m_stateObject;
     WorkGraphContext m_workGraphContext;
-    ComPtr<ID3D12GraphicsCommandList10> m_commandList;
+    ComPtr<ID3D12GraphicsCommandList10> m_d3dCommandList;
     UINT m_rtvDescriptorSize;
 
     // App resources.
-    ComPtr<ID3D12Resource> m_vertexBuffer;
-    D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
+    ComPtr<ID3D12Resource> m_rscVtx;
+    D3D12_VERTEX_BUFFER_VIEW m_vtxView;
 
     // Synchronization objects.
-    UINT m_frameIndex;
+    UINT m_d3dCurrentFrameIndex;
     HANDLE m_fenceEvent;
     ComPtr<ID3D12Fence> m_fence;
     UINT64 m_fenceValue;

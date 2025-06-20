@@ -36,10 +36,10 @@ protected:
     virtual void OnWindowMoved(int, int);
     virtual void OnDestroy();
     virtual void OnKeyDown(UINT8 key);
-    virtual IDXGISwapChain* GetSwapchain() { return m_swapChain.Get(); }
+    virtual IDXGISwapChain* GetSwapchain() { return m_d3dSwapChain.Get(); }
 
 private:
-    static const UINT FrameCount = 2;
+    static const UINT m_RenderTargetCount = 2;
     static const float QuadWidth;
     static const float QuadHeight;
     static const float LetterboxColor[4];
@@ -79,22 +79,22 @@ private:
     CD3DX12_VIEWPORT m_postViewport;
     CD3DX12_RECT m_sceneScissorRect;
     CD3DX12_RECT m_postScissorRect;
-    ComPtr<IDXGISwapChain3> m_swapChain;
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[m_RenderTargetCount];
     ComPtr<ID3D12Resource> m_intermediateRenderTarget;
-    ComPtr<ID3D12CommandAllocator> m_sceneCommandAllocators[FrameCount];
-    ComPtr<ID3D12CommandAllocator> m_postCommandAllocators[FrameCount];
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
+    ComPtr<ID3D12CommandAllocator> m_sceneCommandAllocators[m_RenderTargetCount];
+    ComPtr<ID3D12CommandAllocator> m_postCommandAllocators[m_RenderTargetCount];
+    ComPtr<ID3D12CommandQueue> m_d3dCommandQueue;
     ComPtr<ID3D12RootSignature> m_sceneRootSignature;
     ComPtr<ID3D12RootSignature> m_postRootSignature;
-    ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
+    ComPtr<ID3D12DescriptorHeap> m_d3dDecsHeap;
     ComPtr<ID3D12DescriptorHeap> m_cbvSrvHeap;
     ComPtr<ID3D12PipelineState> m_scenePipelineState;
     ComPtr<ID3D12PipelineState> m_postPipelineState;
     ComPtr<ID3D12GraphicsCommandList> m_sceneCommandList;
     ComPtr<ID3D12GraphicsCommandList> m_postCommandList;
-    UINT m_rtvDescriptorSize;
+    UINT m_d3dDescriptorSize;
     UINT m_cbvSrvDescriptorSize;
 
     // App resources.
@@ -110,7 +110,7 @@ private:
     UINT m_frameIndex;
     HANDLE m_fenceEvent;
     ComPtr<ID3D12Fence> m_fence;
-    UINT64 m_fenceValues[FrameCount];
+    UINT64 m_fenceValues[m_RenderTargetCount];
 
     // Track the state of the window.
     // If it's minimized the app may decide not to render frames.

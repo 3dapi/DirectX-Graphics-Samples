@@ -90,11 +90,11 @@ void D3D12HelloMeshNodes::InitWorkGraphContext(
 
 D3D12HelloMeshNodes::D3D12HelloMeshNodes(UINT width, UINT height, std::wstring name) :
     DXSample(width, height, name),
-    m_frameIndex(0),
-    m_scissorRect(0, 0, static_cast<LONG>(width), static_cast<LONG>(height)),
+    m_d3dCurrentFrameIndex(0),
+    m_d3dScissorRect(0, 0, static_cast<LONG>(width), static_cast<LONG>(height)),
     m_rtvDescriptorSize(0)
 {
-    m_viewport = CD3DX12_VIEWPORT( 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height) );
+    m_d3dViewport = CD3DX12_VIEWPORT( 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height) );
 }
 
 void D3D12HelloMeshNodes::OnInit()
@@ -143,23 +143,22 @@ void D3D12HelloMeshNodes::GeneralSetup()
         ThrowIfFailed(D3D12CreateDevice(
             warpAdapter.Get(),
             D3D_FEATURE_LEVEL_11_0,
-            IID_PPV_ARGS(&m_device)
+            IID_PPV_ARGS(&m_d3dDevice)
         ));
     }
     else
     {
-        ComPtr<IDXGIAdapter1> hardwareAdapter;
-        GetHardwareAdapter(factory.Get(), &hardwareAdapter);
+        ComPtr<IDXGIAdapter> hardwareAdapter = GetHardwareAdapter(factory.Get());
 
         ThrowIfFailed(D3D12CreateDevice(
             hardwareAdapter.Get(),
             D3D_FEATURE_LEVEL_11_0,
-            IID_PPV_ARGS(&m_device)
+            IID_PPV_ARGS(&m_d3dDevice)
         ));
     }
 
     D3D12_FEATURE_DATA_D3D12_OPTIONS21 Options;
-    ThrowIfFailed(m_device->CheckFeatureSupport(
+    ThrowIfFailed(m_d3dDevice->CheckFeatureSupport(
         D3D12_FEATURE_D3D12_OPTIONS21, &Options, sizeof(Options)));
     if (Options.WorkGraphsTier < D3D12_WORK_GRAPHS_TIER_1_1) {
         OutputDebugStringA("Device does not report support for work graphs tier 1.1 (mesh nodes).");
@@ -171,11 +170,11 @@ void D3D12HelloMeshNodes::GeneralSetup()
     queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 
-    ThrowIfFailed(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_commandQueue)));
+    ThrowIfFailed(m_d3dDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_d3dCommandQueue)));
 
     // Describe and create the swap chain.
     DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
-    swapChainDesc.BufferCount = FrameCount;
+    swapChainDesc.BufferCount = FRAME_BUFFER_COUNT;
     swapChainDesc.Width = m_width;
     swapChainDesc.Height = m_height;
     swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -183,35 +182,31 @@ void D3D12HelloMeshNodes::GeneralSetup()
     swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     swapChainDesc.SampleDesc.Count = 1;
 
-    ComPtr<IDXGISwapChain1> swapChain;
     ThrowIfFailed(factory->CreateSwapChainForHwnd(
-        m_commandQueue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
+        m_d3dCommandQueue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
         Win32Application::GetHwnd(),
         &swapChainDesc,
         nullptr,
         nullptr,
-        &swapChain
+        (IDXGISwapChain1**)m_d3dSwapChain.GetAddressOf()
         ));
 
     // This sample does not support fullscreen transitions.
-    ThrowIfFailed(
-        factory->MakeWindowAssociation(Win32Application::GetHwnd(), 
-            DXGI_MWA_NO_ALT_ENTER));
+    ThrowIfFailed(factory->MakeWindowAssociation(Win32Application::GetHwnd(),  DXGI_MWA_NO_ALT_ENTER));
 
-    ThrowIfFailed(swapChain.As(&m_swapChain));
-    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+    m_d3dCurrentFrameIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
 
     // Create descriptor heaps.
     {
         // Describe and create a render target view (RTV) descriptor heap.
         D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
-        rtvHeapDesc.NumDescriptors = FrameCount;
+        rtvHeapDesc.NumDescriptors = FRAME_BUFFER_COUNT;
         rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
         rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)));
+        ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)));
 
         m_rtvDescriptorSize = 
-            m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+            m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
     }
 
     // Create frame resources.
@@ -220,28 +215,28 @@ void D3D12HelloMeshNodes::GeneralSetup()
             m_rtvHeap->GetCPUDescriptorHandleForHeapStart());
 
         // Create a RTV for each frame.
-        for (UINT n = 0; n < FrameCount; n++)
+        for (UINT n = 0; n < FRAME_BUFFER_COUNT; n++)
         {
-            ThrowIfFailed(m_swapChain->GetBuffer(n, IID_PPV_ARGS(&m_renderTargets[n])));
-            m_device->CreateRenderTargetView(m_renderTargets[n].Get(), nullptr, rtvHandle);
+            ThrowIfFailed(m_d3dSwapChain->GetBuffer(n, IID_PPV_ARGS(&m_d3dRenderTarget[n])));
+            m_d3dDevice->CreateRenderTargetView(m_d3dRenderTarget[n].Get(), nullptr, rtvHandle);
             rtvHandle.Offset(1, m_rtvDescriptorSize);
         }
     }
 
-    ThrowIfFailed(m_device->CreateCommandAllocator(
+    ThrowIfFailed(m_d3dDevice->CreateCommandAllocator(
         D3D12_COMMAND_LIST_TYPE_DIRECT, 
-        IID_PPV_ARGS(&m_commandAllocator)));
+        IID_PPV_ARGS(&m_d3dCommandAllocator)));
 }
 
 void D3D12HelloMeshNodes::CreateWorkGraph()
 {
-    ThrowIfFailed(m_device->CreateCommandList(0, 
+    ThrowIfFailed(m_d3dDevice->CreateCommandList(0, 
         D3D12_COMMAND_LIST_TYPE_DIRECT, 
-        m_commandAllocator.Get(), 
+        m_d3dCommandAllocator.Get(), 
         nullptr, 
-        IID_PPV_ARGS(&m_commandList)));
+        IID_PPV_ARGS(&m_d3dCommandList)));
 
-    ThrowIfFailed(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
+    ThrowIfFailed(m_d3dDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
     m_fenceValue = 1;
     m_fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if (m_fenceEvent == nullptr)
@@ -276,7 +271,7 @@ void D3D12HelloMeshNodes::CreateWorkGraph()
             GetAssetFullPath(L"shaders.hlsl").c_str(), 
             nullptr, L"lib_6_9", cDefines, _countof(cDefines), nullptr, 0, &libShaders));
 
-        ThrowIfFailed(m_device->CreateRootSignatureFromSubobjectInLibrary(0, 
+        ThrowIfFailed(m_d3dDevice->CreateRootSignatureFromSubobjectInLibrary(0, 
             libShaders->GetBufferPointer(), 
             libShaders->GetBufferSize(), 
             L"MeshNodesGlobalRS", 
@@ -413,7 +408,7 @@ void D3D12HelloMeshNodes::CreateWorkGraph()
         pMeshNode2->LocalRootArgumentsTableIndex(2);
 
         ThrowIfFailed(
-            m_device->CreateStateObject(SODesc, 
+            m_d3dDevice->CreateStateObject(SODesc, 
                 IID_PPV_ARGS(&m_stateObject)));
 
         // Define local root argument data
@@ -438,7 +433,7 @@ void D3D12HelloMeshNodes::CreateWorkGraph()
 
     // Command lists are created in the recording state, but there is nothing
     // to record yet. The main loop expects it to be closed, so close it now.
-    ThrowIfFailed(m_commandList->Close());
+    ThrowIfFailed(m_d3dCommandList->Close());
 }
 
 // Update frame-based values.
@@ -453,11 +448,11 @@ void D3D12HelloMeshNodes::OnRender()
     PopulateCommandList();
 
     // Execute the command list.
-    ID3D12CommandList* ppCommandLists[] = { m_commandList.Get() };
-    m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+    ID3D12CommandList* ppCommandLists[] = { m_d3dCommandList.Get() };
+    m_d3dCommandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 
     // Present the frame.
-    ThrowIfFailed(m_swapChain->Present(1, 0));
+    ThrowIfFailed(m_d3dSwapChain->Present(1, 0));
 
     WaitForPreviousFrame();
 }
@@ -476,38 +471,38 @@ void D3D12HelloMeshNodes::PopulateCommandList()
     // Command list allocators can only be reset when the associated 
     // command lists have finished execution on the GPU; apps should use 
     // fences to determine GPU execution progress.
-    ThrowIfFailed(m_commandAllocator->Reset());
+    ThrowIfFailed(m_d3dCommandAllocator->Reset());
 
     // However, when ExecuteCommandList() is called on a particular command 
     // list, that command list can then be reset at any time and must be before 
     // re-recording.
-    ThrowIfFailed(m_commandList->Reset(m_commandAllocator.Get(), nullptr));
+    ThrowIfFailed(m_d3dCommandList->Reset(m_d3dCommandAllocator.Get(), nullptr));
 
     // Set necessary state.
-    m_commandList->SetGraphicsRootSignature(m_globalRootSignature.Get());
-    m_commandList->RSSetScissorRects(1, &m_scissorRect);
+    m_d3dCommandList->SetGraphicsRootSignature(m_globalRootSignature.Get());
+    m_d3dCommandList->RSSetScissorRects(1, &m_d3dScissorRect);
 
     // Indicate that the back buffer will be used as a render target.
-    m_commandList->ResourceBarrier(
+    m_d3dCommandList->ResourceBarrier(
         1, 
-        &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), 
+        &CD3DX12_RESOURCE_BARRIER::Transition(m_d3dRenderTarget[m_d3dCurrentFrameIndex].Get(), 
             D3D12_RESOURCE_STATE_PRESENT, 
             D3D12_RESOURCE_STATE_RENDER_TARGET));
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(
         m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), 
-        m_frameIndex, 
+        m_d3dCurrentFrameIndex, 
         m_rtvDescriptorSize);
-    m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+    m_d3dCommandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
 
-    m_commandList->RSSetViewports(1, &m_viewport);
+    m_d3dCommandList->RSSetViewports(1, &m_d3dViewport);
 
     // Record commands.
     const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
-    m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+    m_d3dCommandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
 
     float greenChannel = 0.5f;
-    m_commandList->SetGraphicsRoot32BitConstant(0, *(UINT*)&greenChannel, 0);
+    m_d3dCommandList->SetGraphicsRoot32BitConstant(0, *(UINT*)&greenChannel, 0);
 
     D3D12_SET_PROGRAM_DESC SP;
     SP.Type = D3D12_PROGRAM_TYPE_WORK_GRAPH;
@@ -516,7 +511,7 @@ void D3D12HelloMeshNodes::PopulateCommandList()
     SP.WorkGraph.ProgramIdentifier = m_workGraphContext.hWorkGraph;
     SP.WorkGraph.NodeLocalRootArgumentsTable = 
         m_workGraphContext.LocalRootArgumentsTable;
-    m_commandList->SetProgram(&SP);
+    m_d3dCommandList->SetProgram(&SP);
 
     struct BinningRecord
     {
@@ -586,16 +581,16 @@ void D3D12HelloMeshNodes::PopulateCommandList()
     DG.MultiNodeCPUInput.pNodeInputs = multiNodeInput.data();
     DG.MultiNodeCPUInput.NodeInputStrideInBytes = sizeof(D3D12_NODE_CPU_INPUT);
 
-    m_commandList->DispatchGraph(&DG);
+    m_d3dCommandList->DispatchGraph(&DG);
 
     // Indicate that the back buffer will now be used to present.
-    m_commandList->ResourceBarrier(1, 
+    m_d3dCommandList->ResourceBarrier(1, 
         &CD3DX12_RESOURCE_BARRIER::Transition(
-            m_renderTargets[m_frameIndex].Get(), 
+            m_d3dRenderTarget[m_d3dCurrentFrameIndex].Get(), 
             D3D12_RESOURCE_STATE_RENDER_TARGET, 
             D3D12_RESOURCE_STATE_PRESENT));
 
-    ThrowIfFailed(m_commandList->Close());
+    ThrowIfFailed(m_d3dCommandList->Close());
 }
 
 void D3D12HelloMeshNodes::WaitForPreviousFrame()
@@ -607,7 +602,7 @@ void D3D12HelloMeshNodes::WaitForPreviousFrame()
 
     // Signal and increment the fence value.
     const UINT64 fence = m_fenceValue;
-    ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), fence));
+    ThrowIfFailed(m_d3dCommandQueue->Signal(m_fence.Get(), fence));
     m_fenceValue++;
 
     // Wait until the previous frame is finished.
@@ -617,17 +612,17 @@ void D3D12HelloMeshNodes::WaitForPreviousFrame()
         WaitForSingleObject(m_fenceEvent, INFINITE);
     }
 
-    m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+    m_d3dCurrentFrameIndex = m_d3dSwapChain->GetCurrentBackBufferIndex();
 }
 
 void D3D12HelloMeshNodes::FlushAndFinish()
 {
-    ThrowIfFailed(m_commandList->Close());
-    ID3D12CommandList* ppCommandLists[] = { m_commandList.Get() };
-    m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+    ThrowIfFailed(m_d3dCommandList->Close());
+    ID3D12CommandList* ppCommandLists[] = { m_d3dCommandList.Get() };
+    m_d3dCommandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 
     UINT64 fence = m_fenceValue;
-    ThrowIfFailed(m_commandQueue->Signal(m_fence.Get(), fence));
+    ThrowIfFailed(m_d3dCommandQueue->Signal(m_fence.Get(), fence));
     ThrowIfFailed(m_fence->SetEventOnCompletion(fence, m_fenceEvent));
     m_fenceValue++;
 
@@ -636,10 +631,10 @@ void D3D12HelloMeshNodes::FlushAndFinish()
     {
         ThrowIfFailed(E_FAIL);
     }
-    ThrowIfFailed(m_device->GetDeviceRemovedReason());
+    ThrowIfFailed(m_d3dDevice->GetDeviceRemovedReason());
 
-    ThrowIfFailed(m_commandAllocator->Reset());
-    ThrowIfFailed(m_commandList->Reset(m_commandAllocator.Get(), nullptr));
+    ThrowIfFailed(m_d3dCommandAllocator->Reset());
+    ThrowIfFailed(m_d3dCommandList->Reset(m_d3dCommandAllocator.Get(), nullptr));
 }
 
 void D3D12HelloMeshNodes::MakeBuffer(
@@ -652,7 +647,7 @@ void D3D12HelloMeshNodes::MakeBuffer(
     rd.Flags = ResourceMiscFlags;
     CD3DX12_HEAP_PROPERTIES hp(HeapType);
 
-    ThrowIfFailed(m_device->CreateCommittedResource(
+    ThrowIfFailed(m_d3dDevice->CreateCommittedResource(
         &hp,
         D3D12_HEAP_FLAG_NONE,
         &rd,
@@ -685,7 +680,7 @@ void D3D12HelloMeshNodes::UploadData(
     {
         ppStagingResource = &pStagingResource;
     }
-    ThrowIfFailed(m_device->CreateCommittedResource(&HeapProps, D3D12_HEAP_FLAG_NONE, &BufferDesc,
+    ThrowIfFailed(m_d3dDevice->CreateCommittedResource(&HeapProps, D3D12_HEAP_FLAG_NONE, &BufferDesc,
         D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(ppStagingResource)));
 
     bool NeedTransition = (CurrentState & D3D12_RESOURCE_STATE_COPY_DEST) == 0;
@@ -698,13 +693,13 @@ void D3D12HelloMeshNodes::UploadData(
         BarrierDesc.Transition.Subresource = 0;
         BarrierDesc.Transition.StateBefore = CurrentState;
         BarrierDesc.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
-        m_commandList->ResourceBarrier(1, &BarrierDesc);
+        m_d3dCommandList->ResourceBarrier(1, &BarrierDesc);
         std::swap(BarrierDesc.Transition.StateBefore, BarrierDesc.Transition.StateAfter); // ensure StateBefore represents current state
     }
 
     // Execute upload
     D3D12_SUBRESOURCE_DATA SubResourceData = { pData, static_cast<LONG_PTR>(Size), static_cast<LONG_PTR>(Size) };
-    if (Size != UpdateSubresources(m_commandList.Get(), pResource, *ppStagingResource, 0, 0, 1, &SubResourceData))
+    if (Size != UpdateSubresources(m_d3dCommandList.Get(), pResource, *ppStagingResource, 0, 0, 1, &SubResourceData))
     {
         OutputDebugStringA("UpdateSubresources returns the number of bytes updated, so 0 if nothing was updated");
         throw E_FAIL;
@@ -712,7 +707,7 @@ void D3D12HelloMeshNodes::UploadData(
     if (NeedTransition)
     {
         // Transition back to whatever the app had
-        m_commandList->ResourceBarrier(1, &BarrierDesc);
+        m_d3dCommandList->ResourceBarrier(1, &BarrierDesc);
         std::swap(BarrierDesc.Transition.StateBefore, BarrierDesc.Transition.StateAfter); // ensure StateBefore represents current state
     }
     if (doFlush == true)

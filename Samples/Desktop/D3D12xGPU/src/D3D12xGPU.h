@@ -42,7 +42,7 @@ protected:
     virtual void OnUpdate();
     virtual void OnRender();
     virtual void OnDestroy();
-    virtual IDXGISwapChain* GetSwapchain() { return m_swapChain.Get(); }
+    virtual IDXGISwapChain* GetSwapchain() { return m_d3dSwapChain.Get(); }
 
 private:
     // GPU adapter management.
@@ -61,17 +61,17 @@ private:
     DWORD m_adapterChangeRegistrationCookie;
 
     // D3D objects.
-    ComPtr<ID3D12Device> m_device;
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
+    ComPtr<ID3D12Device> m_d3dDevice;
+    ComPtr<ID3D12CommandQueue> m_d3dCommandQueue;
 #ifdef USE_DXGI_1_6
-    ComPtr<IDXGISwapChain4> m_swapChain;
+    ComPtr<IDXGISwapChain4> m_d3dSwapChain;
     ComPtr<IDXGIFactory6>   m_dxgiFactory;
 #else
-    ComPtr<IDXGISwapChain3> m_swapChain;
+    ComPtr<IDXGISwapChain3> m_d3dSwapChain;
     ComPtr<IDXGIFactory2>   m_dxgiFactory;
 #endif
     UINT m_dxgiFactoryFlags;
-    ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
+    ComPtr<ID3D12Resource> m_d3dRenderTarget[FrameCount];
     ComPtr<ID3D12Fence> m_fence;
     
     // Scene rendering resources
@@ -85,7 +85,7 @@ private:
     StepTimer m_timer;
 
     // Frame synchronization objects
-    UINT   m_frameIndex;
+    UINT   m_d3dCurrentFrameIndex;
     HANDLE m_fenceEvent;
     UINT64 m_fenceValues[FrameCount];
 
