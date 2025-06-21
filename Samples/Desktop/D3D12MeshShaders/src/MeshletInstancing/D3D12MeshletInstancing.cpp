@@ -104,8 +104,7 @@ void D3D12MeshletInstancing::LoadPipeline()
     }
     else
     {
-        ComPtr<IDXGIAdapter1> hardwareAdapter;
-        GetHardwareAdapter(factory.Get(), &hardwareAdapter, true);
+        ComPtr<IDXGIAdapter> hardwareAdapter = GetHardwareAdapter(factory.Get(), true);
 
         ThrowIfFailed(D3D12CreateDevice(
             hardwareAdapter.Get(),

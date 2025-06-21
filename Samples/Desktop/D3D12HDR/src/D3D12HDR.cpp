@@ -95,8 +95,7 @@ void D3D12HDR::LoadPipeline()
     }
     else
     {
-        ComPtr<IDXGIAdapter1> hardwareAdapter;
-        GetHardwareAdapter(m_dxgiFactory.Get(), &hardwareAdapter);
+        ComPtr<IDXGIAdapter> hardwareAdapter = GetHardwareAdapter(m_dxgiFactory.Get());
 
         ThrowIfFailed(D3D12CreateDevice(
             hardwareAdapter.Get(),

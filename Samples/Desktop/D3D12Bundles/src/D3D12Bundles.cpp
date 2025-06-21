@@ -599,12 +599,12 @@ void D3D12Bundles::PopulateCommandList(FrameResource* pFrameResource)
     // Command list allocators can only be reset when the associated
     // command lists have finished execution on the GPU; apps should use
     // fences to determine GPU execution progress.
-    ThrowIfFailed(m_pCurrentFrameResource->m_d3dCommandAllocator->Reset());
+    ThrowIfFailed(m_pCurrentFrameResource->m_commandAllocator->Reset());
 
     // However, when ExecuteCommandList() is called on a particular command
     // list, that command list can then be reset at any time and must be before
     // re-recording.
-    ThrowIfFailed(m_commandList->Reset(m_pCurrentFrameResource->m_d3dCommandAllocator.Get(), m_pipelineState1.Get()));
+    ThrowIfFailed(m_commandList->Reset(m_pCurrentFrameResource->m_commandAllocator.Get(), m_pipelineState1.Get()));
 
     // Set necessary state.
     m_commandList->SetGraphicsRootSignature(m_d3dRootSignature.Get());

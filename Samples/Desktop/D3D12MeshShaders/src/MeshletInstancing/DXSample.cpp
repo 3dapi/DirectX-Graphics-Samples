@@ -41,9 +41,7 @@ std::wstring DXSample::GetAssetFullPath(LPCWSTR assetName)
 // If no such adapter can be found, *ppAdapter will be set to nullptr.
 IDXGIAdapter* DXSample::GetHardwareAdapter(IDXGIFactory1* pFactory, bool requestHighPerformanceAdapter)
 {
-    *ppAdapter = nullptr;
     ComPtr<IDXGIAdapter1> adapter;
-
     ComPtr<IDXGIFactory6> factory6;
     if (SUCCEEDED(pFactory->QueryInterface(IID_PPV_ARGS(&factory6))))
     {
