@@ -5,7 +5,7 @@ struct PSInput
     float4 d: COLOR;
 };
 
-PSInput main_vtx(float4 position : POSITION, float4 color : COLOR)
+PSInput main_vs(float4 position : POSITION, float4 color : COLOR)
 {
     PSInput o;
 
@@ -15,7 +15,7 @@ PSInput main_vtx(float4 position : POSITION, float4 color : COLOR)
     return o;
 }
 
-float4 main_pxl(PSInput vi) : SV_TARGET0
+float4 main_ps(PSInput vi) : SV_TARGET0
 {
 	return vi.d;
 }

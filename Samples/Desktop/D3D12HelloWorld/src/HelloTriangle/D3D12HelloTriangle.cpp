@@ -30,6 +30,8 @@ void D3D12HelloTriangle::OnInit()
 // Load the rendering pipeline dependencies.
 void D3D12HelloTriangle::LoadPipeline()
 {
+    HRESULT hr = S_OK;
+
     UINT dxgiFactoryFlags = 0;
 
 #if defined(_DEBUG)
@@ -40,7 +42,6 @@ void D3D12HelloTriangle::LoadPipeline()
         if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
         {
             debugController->EnableDebugLayer();
-
             // Enable additional debug layers.
             dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
         }
@@ -55,7 +56,7 @@ void D3D12HelloTriangle::LoadPipeline()
         ComPtr<IDXGIAdapter> warpAdapter;
         ThrowIfFailed(factory->EnumWarpAdapter(IID_PPV_ARGS(&warpAdapter)));
 
-        ThrowIfFailed(D3D12CreateDevice(warpAdapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&m_d3dDevice) ));
+        ThrowIfFailed(D3D12CreateDevice(warpAdapter.Get(), D3D_FEATURE_LEVEL_12_2, IID_PPV_ARGS(&m_d3dDevice) ));
     }
     else
     {
@@ -63,7 +64,7 @@ void D3D12HelloTriangle::LoadPipeline()
 
         ThrowIfFailed(D3D12CreateDevice(
             hardwareAdapter.Get(),
-            D3D_FEATURE_LEVEL_11_0,
+            D3D_FEATURE_LEVEL_12_2,
             IID_PPV_ARGS(&m_d3dDevice)
             ));
     }
@@ -127,63 +128,73 @@ void D3D12HelloTriangle::LoadPipeline()
     ThrowIfFailed(m_d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_d3dCommandAllocator)));
 }
 
+
+std::wstring StringToWString(const std::string& str)
+{
+	int len = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, {}, 0);
+	std::wstring wstr(len, 0);
+	MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &wstr[0], len);
+	return wstr;
+}
+
+HRESULT DXCompileShaderFromFile(const std::string& szFileName, const std::string& szEntryPoint, const std::string& szShaderModel, ID3DBlob** ppBlobOut)
+{
+	HRESULT hr = S_OK;
+	UINT compileFlags = 0;
+#ifdef _DEBUG
+	compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#endif
+	auto wFileName = StringToWString(szFileName);
+	ID3DBlob* pErrorBlob{};
+	hr = D3DCompileFromFile(wFileName.c_str(), {}, {}, szEntryPoint.c_str(), szShaderModel.c_str(), compileFlags, 0, ppBlobOut, &pErrorBlob);
+	if (FAILED(hr))
+	{
+		if (pErrorBlob)
+		{
+			OutputDebugStringA(reinterpret_cast<const char*>(pErrorBlob->GetBufferPointer()));
+			SAFE_RELEASE(pErrorBlob);
+		}
+		return hr;
+	}
+	SAFE_RELEASE(pErrorBlob);
+
+	return S_OK;
+}
+
+
 // Load the sample assets.
 void D3D12HelloTriangle::LoadAssets()
 {
+    HRESULT hr = S_OK;
     // Create an empty root signature.
-    {
-        CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
-        rootSignatureDesc.Init(0, nullptr, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
-
-        ComPtr<ID3DBlob> signature;
-        ComPtr<ID3DBlob> error;
-        ThrowIfFailed(D3D12SerializeRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error));
-        ThrowIfFailed(m_d3dDevice->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature)));
-    }
+	{
+		D3D12_ROOT_SIGNATURE_DESC rsDesc{};
+		rsDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+		ComPtr<ID3DBlob> signature{}, error{};
+		hr = D3D12SerializeRootSignature(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error);
+		if (FAILED(hr))
+			return;
+		hr = m_d3dDevice->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_d3dRootSignature));
+		if (FAILED(hr))
+			return;
+	}
 
     // Create the pipeline state, which includes compiling and loading shaders.
     {
-        ComPtr<ID3DBlob> shaderVtx;
-        ComPtr<ID3DBlob> shaderPxl;
+        ComPtr<ID3DBlob> shaderVtx{}, shaderPxl{};
 
-#if defined(_DEBUG)
-        // Enable better shader debugging with the graphics debugging tools.
-        UINT compileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
-#else
-        UINT compileFlags = 0;
-#endif
-
-        ThrowIfFailed(D3DCompileFromFile(GetAssetFullPath(L"shaders.hlsl").c_str(), nullptr, nullptr, "main_vtx", "vs_5_0", compileFlags, 0, &shaderVtx, nullptr));
-        ThrowIfFailed(D3DCompileFromFile(GetAssetFullPath(L"shaders.hlsl").c_str(), nullptr, nullptr, "main_pxl", "ps_5_0", compileFlags, 0, &shaderPxl, nullptr));
+        hr = DXCompileShaderFromFile("E:/_doc/lessson_unreal/DirectX12-Graphics-Samples/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/shaders.hlsl", "main_vs", "vs_5_0", &shaderVtx);
+        hr = DXCompileShaderFromFile("E:/_doc/lessson_unreal/DirectX12-Graphics-Samples/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/shaders.hlsl", "main_ps", "ps_5_0", &shaderPxl);
 
         // Define the vertex input layout.
         D3D12_INPUT_ELEMENT_DESC inputElementDescs[] =
         {
             { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-            { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+            { "COLOR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 0+sizeof(XMFLOAT3), D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
         };
 
 
         // Describe and create the graphics pipeline state object (PSO).
-        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-        psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
-        psoDesc.pRootSignature = m_rootSignature.Get();
-
-		psoDesc.VS.pShaderBytecode = shaderVtx.Get()->GetBufferPointer();
-		psoDesc.VS.BytecodeLength = shaderVtx.Get()->GetBufferSize();
-		psoDesc.PS.pShaderBytecode = shaderPxl.Get()->GetBufferPointer();
-		psoDesc.PS.BytecodeLength = shaderPxl.Get()->GetBufferSize();
-        psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-        psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-        psoDesc.DepthStencilState.DepthEnable = FALSE;
-        psoDesc.DepthStencilState.StencilEnable = FALSE;
-        psoDesc.SampleMask = UINT_MAX;
-        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-        psoDesc.NumRenderTargets = 1;
-        psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-        psoDesc.SampleDesc.Count = 1;
-
-
 		D3D12_RASTERIZER_DESC rasterDesc = {};
 		    rasterDesc.FillMode = D3D12_FILL_MODE_SOLID;
 		    rasterDesc.CullMode = D3D12_CULL_MODE_BACK;
@@ -196,12 +207,12 @@ void D3D12HelloTriangle::LoadAssets()
 		    rasterDesc.AntialiasedLineEnable = FALSE;
 		    rasterDesc.ForcedSampleCount = 0;
 		    rasterDesc.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
-		psoDesc.RasterizerState = rasterDesc;
 
 		D3D12_BLEND_DESC blendDesc = {};
 		    blendDesc.AlphaToCoverageEnable = FALSE;
 		    blendDesc.IndependentBlendEnable = FALSE;
-		    const D3D12_RENDER_TARGET_BLEND_DESC defaultRenderTargetBlendDesc = {
+		    const D3D12_RENDER_TARGET_BLEND_DESC defaultRenderTargetBlendDesc =
+            {
 			    FALSE, FALSE,
 			    D3D12_BLEND_ONE, D3D12_BLEND_ZERO, D3D12_BLEND_OP_ADD,
 			    D3D12_BLEND_ONE, D3D12_BLEND_ZERO, D3D12_BLEND_OP_ADD,
@@ -209,9 +220,25 @@ void D3D12HelloTriangle::LoadAssets()
 			    D3D12_COLOR_WRITE_ENABLE_ALL
 		    };
 		    for (int i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i)
+		    {
 			    blendDesc.RenderTarget[i] = defaultRenderTargetBlendDesc;
-		psoDesc.BlendState = blendDesc;
+		    }
+		
 
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+		    psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
+		    psoDesc.pRootSignature = m_d3dRootSignature.Get();
+		    psoDesc.VS = { shaderVtx.Get()->GetBufferPointer(), shaderVtx.Get()->GetBufferSize() };
+		    psoDesc.PS = { shaderPxl.Get()->GetBufferPointer(), shaderPxl.Get()->GetBufferSize() };
+		    psoDesc.BlendState = blendDesc;
+		    psoDesc.RasterizerState = rasterDesc;
+		    psoDesc.DepthStencilState.DepthEnable = FALSE;
+		    psoDesc.DepthStencilState.StencilEnable = FALSE;
+		    psoDesc.SampleMask = UINT_MAX;
+		    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+		    psoDesc.NumRenderTargets = 1;
+		    psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+		    psoDesc.SampleDesc.Count = 1;
 
         ThrowIfFailed(m_d3dDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState)));
     }
@@ -225,8 +252,7 @@ void D3D12HelloTriangle::LoadAssets()
 
     // Create the vertex buffer.
     {
-        const UINT vertexBufferSize = sizeof(Vertex) * 3;
-
+        m_bufVtxCount = 4;
         // Note: using upload heaps to transfer static data like vert buffers is not 
         // recommended. Every time the GPU needs it, the upload heap will be marshalled 
         // over. Please read up on Default Heap usage. An upload heap is used here for 
@@ -241,7 +267,7 @@ void D3D12HelloTriangle::LoadAssets()
 		D3D12_RESOURCE_DESC resourceDesc = {};
 		    resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
 		    resourceDesc.Alignment = 0;
-		    resourceDesc.Width = vertexBufferSize;
+            resourceDesc.Width = sizeof(Vertex) * m_bufVtxCount;
 		    resourceDesc.Height = 1;
 		    resourceDesc.DepthOrArraySize = 1;
 		    resourceDesc.MipLevels = 1;
@@ -274,16 +300,17 @@ void D3D12HelloTriangle::LoadAssets()
         ThrowIfFailed(m_rscVtx->Map(0, &readRange, reinterpret_cast<void**>(&pVertexDataBegin)));
 
 		Vertex* pCur = reinterpret_cast<Vertex*>(pVertexDataBegin);
-		*pCur++ = { {   0.0f,  0.25f * m_aspectRatio, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } };
-		*pCur++ = { {  0.25f, -0.25f * m_aspectRatio, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } };
-		*pCur++ = { { -0.25f, -0.25f * m_aspectRatio, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } };
+		*pCur++ = { { -0.25f,  0.25f * m_aspectRatio, 0.0f }, {   0,   0, 255, 255 } };
+		*pCur++ = { {  0.25f,  0.25f * m_aspectRatio, 0.0f }, { 255,   0,   0, 255 } };
+		*pCur++ = { {  0.25f, -0.25f * m_aspectRatio, 0.0f }, {   0, 255,   0, 255 } };
+		*pCur++ = { { -0.25f, -0.25f * m_aspectRatio, 0.0f }, {   0, 128, 128, 255 } };
         // 이거 Unmap 안해도 돼
         //m_rscVtx->Unmap(0, nullptr);
 
         // Initialize the vertex buffer view.
         m_vtxView.BufferLocation = m_rscVtx->GetGPUVirtualAddress();
         m_vtxView.StrideInBytes = sizeof(Vertex);
-        m_vtxView.SizeInBytes = vertexBufferSize;
+        m_vtxView.SizeInBytes = m_bufVtxCount * m_vtxView.StrideInBytes;
     }
 
     // Create synchronization objects and wait until assets have been uploaded to the GPU.
@@ -324,7 +351,7 @@ void D3D12HelloTriangle::OnRender()
 	ThrowIfFailed(m_d3dCommandList->Reset(m_d3dCommandAllocator.Get(), m_pipelineState.Get()));
 
 	// Set necessary state.
-	m_d3dCommandList->SetGraphicsRootSignature(m_rootSignature.Get());
+	m_d3dCommandList->SetGraphicsRootSignature(m_d3dRootSignature.Get());
 	m_d3dCommandList->RSSetViewports(1, &m_d3dViewport);
 	m_d3dCommandList->RSSetScissorRects(1, &m_d3dScissorRect);
 
@@ -337,9 +364,9 @@ void D3D12HelloTriangle::OnRender()
 	// Record commands.
 	const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
 	m_d3dCommandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
-	m_d3dCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	m_d3dCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLEFAN);
 	m_d3dCommandList->IASetVertexBuffers(0, 1, &m_vtxView);
-	m_d3dCommandList->DrawInstanced(3, 1, 0, 0);
+	m_d3dCommandList->DrawInstanced(m_bufVtxCount, 1, 0, 0);
 
 	// Indicate that the back buffer will now be used to present.
 	m_d3dCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_d3dRenderTarget[m_d3dCurrentFrameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
@@ -380,7 +407,7 @@ void D3D12HelloTriangle::PopulateCommandList()
     ThrowIfFailed(m_d3dCommandList->Reset(m_d3dCommandAllocator.Get(), m_pipelineState.Get()));
 
     // Set necessary state.
-    m_d3dCommandList->SetGraphicsRootSignature(m_rootSignature.Get());
+    m_d3dCommandList->SetGraphicsRootSignature(m_d3dRootSignature.Get());
     m_d3dCommandList->RSSetViewports(1, &m_d3dViewport);
     m_d3dCommandList->RSSetScissorRects(1, &m_d3dScissorRect);
 

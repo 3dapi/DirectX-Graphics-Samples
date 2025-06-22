@@ -38,7 +38,7 @@ private:
     struct Vertex
     {
         XMFLOAT3 position;
-        XMFLOAT4 color;
+        uint8_t color[4];
     };
 
     // Pipeline objects.
@@ -49,12 +49,13 @@ private:
     ComPtr<ID3D12Resource>                  m_d3dRenderTarget[FRAME_BUFFER_COUNT];
     ComPtr<ID3D12CommandAllocator>          m_d3dCommandAllocator;
     ComPtr<ID3D12CommandQueue>              m_d3dCommandQueue;
-    ComPtr<ID3D12RootSignature>             m_rootSignature;
+    ComPtr<ID3D12RootSignature>             m_d3dRootSignature;
     ComPtr<ID3D12DescriptorHeap>            m_rtvHeap;
     ComPtr<ID3D12PipelineState>             m_pipelineState;
     ComPtr<ID3D12GraphicsCommandList>       m_d3dCommandList;
     UINT                                    m_rtvDescriptorSize;
 
+    int                                     m_bufVtxCount{};
     // App resources.
     ComPtr<ID3D12Resource>                  m_rscVtx;
     D3D12_VERTEX_BUFFER_VIEW                m_vtxView;
